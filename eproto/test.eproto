@@ -1,0 +1,5 @@
+package test;
+
+service Test {
+  rpc test(stream sub.Test<int32>) returns (sub.Test<Date>);
+}

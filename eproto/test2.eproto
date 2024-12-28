@@ -1,0 +1,6 @@
+package test.sub;
+
+message Test<TSub> {
+  optional Array<Nullable<TSub>> a;
+  Array<OneOf<string, int32, TSub>> b;
+}
