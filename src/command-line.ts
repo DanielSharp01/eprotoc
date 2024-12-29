@@ -1,7 +1,7 @@
 import path from "path";
 import { collectFilesWithExtension } from "./fs-utils";
 
-const GEN_OPTS = ["native", "extended", "skip"] as const;
+const GEN_OPTS = ["native", "evolved", "skip"] as const;
 
 function parseOptionValue(argv: string[]): string | undefined {
   if (
@@ -23,7 +23,7 @@ export function parseCommandLine() {
     printDefinitions: undefined as string | undefined,
     printAST: undefined as string | undefined,
     outputDir: ".",
-    codeGen: "native" as (typeof GEN_OPTS)[number],
+    codeGen: "evolved" as (typeof GEN_OPTS)[number],
   };
   while (
     argv.length > 0 &&
@@ -66,7 +66,7 @@ export function parseCommandLine() {
         );
         forMoreInfo();
       }
-      opts.codeGen = value as "native" | "extended" | "skip";
+      opts.codeGen = value as (typeof GEN_OPTS)[number];
     } else {
       argv.splice(0, 1);
     }
@@ -96,7 +96,7 @@ function printUsage() {
     "  -o/--output <dirname>             Write definitions discovered by the compiler to a json file"
   );
   console.error(
-    "  -g/--gen {native|extended|skip}   Write definitions discovered by the compiler to a json file"
+    "  -g/--gen {native|evolved|skip}    Write definitions discovered by the compiler to a json file"
   );
 }
 

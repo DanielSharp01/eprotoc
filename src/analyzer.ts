@@ -58,6 +58,7 @@ export interface ServiceDefinition {
   name: string;
   package: UserPackageIdentifier;
   rpcs: {
+    path: string;
     input: { stream: boolean; type: Type };
     output: { stream: boolean; type: Type };
   }[];
@@ -126,6 +127,21 @@ export class SemanticAnalyzer {
         ...v.definitionsPerFile.entries(),
       ])
     );
+  }
+
+  findTypeDefinition<T extends "enum" | "message">(
+    kind: T,
+    pkg: UserPackageIdentifier,
+    name: string
+  ): (Definition & { kind: T }) | undefined {
+    const userPackage = this.packages.get(pkg);
+    if (!userPackage) return undefined;
+
+    return [...userPackage.definitionsPerFile.values()]
+      .flat()
+      .find((def) => def.kind === kind && def.typeDefinition.name === name) as
+      | (Definition & { kind: T })
+      | undefined;
   }
 }
 
@@ -417,14 +433,17 @@ export class UserPackage {
       fields: [],
       typeDefinition,
     };
-    let ordinal = 0;
+    let ordinal = 1;
     for (const field of node.fields ?? []) {
       if (field.ordinal) {
         const newOrdinal = Number(field.ordinal.value);
         if (ordinal >= newOrdinal) {
           this.diagnostics.error({
             item: field.ordinal.value,
-            message: "Message field numbers must be sequential",
+            message:
+              newOrdinal < 1
+                ? "Message field numbers must be greater than 0."
+                : "Message field numbers must be sequential.",
           });
         }
         ordinal = newOrdinal;
@@ -441,9 +460,12 @@ export class UserPackage {
         field.type,
         typeDefinition.args
       );
+
       if (!type) {
         continue;
       }
+
+      this.ensureNoVoid(type, field.type, "field");
 
       messageDef.fields.push({
         name: field.name.value,
@@ -482,8 +504,19 @@ export class UserPackage {
         rpc.outputType,
         []
       );
+
+      if (inputType) {
+        this.ensureNoVoidGenerics(inputType, rpc.inputType);
+      }
+
+      if (outputType) {
+        this.ensureNoVoidGenerics(outputType, rpc.inputType);
+      }
+
       if (!inputType || !outputType) continue;
+
       serviceDef.rpcs.push({
+        path: rpc.name.value,
         input: { stream: !!rpc.inputStream, type: inputType },
         output: { stream: !!rpc.outputStream, type: outputType },
       });
@@ -495,6 +528,30 @@ export class UserPackage {
     const nodes = this.astNodesPerFile.get(file);
     this.astNodesPerFile.delete(file);
     return nodes ?? [];
+  }
+
+  ensureNoVoid(type: Type, typeNode: TypeNode, reason: "field" | "generics") {
+    if (type.kind === "real" && type.definition.name === "void") {
+      this.diagnostics.error({
+        item: typeNode.identifier.tokens[0],
+        message:
+          reason === "field"
+            ? 'Fields must not have the type "void"'
+            : 'Generic arguments must not be "void"',
+      });
+    }
+
+    this.ensureNoVoidGenerics(type, typeNode);
+  }
+
+  ensureNoVoidGenerics(type: Type, typeNode: TypeNode) {
+    if (type.kind !== "real") return;
+
+    let idx = 0;
+    for (const generic of type.args) {
+      this.ensureNoVoid(generic, typeNode.generics[idx], "generics");
+      idx++;
+    }
   }
 }
 
@@ -594,6 +651,7 @@ function builtinPackageTypes() {
   const builtinPackageTypes = new Map<string, TypeDefinition>();
 
   for (const builtin of [
+    "void",
     "int32",
     "int64",
     "uint32",

@@ -12,13 +12,21 @@ enum StringEnum {
   C = "Coconut";
 }
 
-message TestMessage<T> {
+message Test {
+  optional StringEnum fruit;
+}
+
+message Test2 {
+  optional Nullable<Date> date;
+}
+
+/*message TestMessage<T> {
   T a;
   optional Nullable<Array<Nullable<int32>>> b;
   Array<string> c;
-  OneOf<int32, float> d;
-}
+  //OneOf<int32, float> d;
+}*/
 
 service TestService {
-  rpc test(TestMessage) returns (StringEnum);
+  rpc test(Test) returns (void);
 }

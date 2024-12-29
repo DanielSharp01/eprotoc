@@ -5,7 +5,6 @@ import { Logger } from "./logger";
 import { SemanticAnalyzer } from "./analyzer";
 import { ensureDirectory, prettyWriteJsonFile } from "./fs-utils";
 import { TSCodeGenerator } from "./codegen";
-import fs from "fs";
 
 const logger = new Logger("debug");
 
@@ -13,8 +12,8 @@ async function main() {
   const diagnostics = new DiagnosticCollection(logger);
   const opts = parseCommandLine();
   const semanticAnalyzer = new SemanticAnalyzer(diagnostics);
+  const generator = new TSCodeGenerator(logger, semanticAnalyzer);
 
-  fs.rmdirSync(opts.outputDir, { recursive: true });
   ensureDirectory(logger, opts.outputDir);
 
   for (const file of new Set(opts.files)) {
@@ -44,9 +43,21 @@ async function main() {
     return;
   }
 
+  if (opts.codeGen === "native") {
+    // TODO: Implementation of native codegen
+    // Top level builtins are not allowed we would have to wrap them them in a one field message
+    // Optional repeated is not allowed we would have to wrap them in a one field message
+    // Nullable has to be an actual message with two fields instead of packed LEN 1 0 or LEN 1 + bytes.len 0 bytes[]
+
+    logger.error(
+      "We do not support native protobuf for now please use evolved"
+    );
+    process.exit(1);
+  }
+
   logger.info(`Beggining code generation using ${opts.codeGen}`);
-  const generator = new TSCodeGenerator(logger);
-  generator.generate(opts.rootDir, opts.outputDir, semanticAnalyzer);
+  generator.generate(opts.rootDir, opts.outputDir);
+  logger.info("Generation successful!");
 }
 
 main();
