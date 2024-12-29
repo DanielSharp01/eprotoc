@@ -5,7 +5,7 @@
   "bin": "dist/index.js",
   "scripts": {
     "build": "tsc && npm link",
-    "build-run": "tsc && npm link && eprotoc --definitions ./output/def.json ./eproto/*"
+    "build-run": "tsc && npm link && eprotoc -o ./output -d ./def.json -a ./ast.json ./eproto"
   },
   "author": "",
   "license": "ISC",

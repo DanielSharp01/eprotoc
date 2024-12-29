@@ -11,8 +11,7 @@
 - oneOf is now a generic type `OneOf<TypeArg1, TypeArg2, ...>`
 - `eproto` enums can be string and integer enums as well
 
-- `eproto` does not support enum aliases
-- `eproto` does not currently support Map, any, 
+- `eproto` does not currently support more complex types such as Map, any, etc.
 - `eproto` does not support reserved fields
 - `eproto` does not support nested messages
 - `eproto` does not support the notion of options

@@ -63,7 +63,8 @@ export interface ServiceDefinition {
   }[];
 }
 
-export class SemanticaAnalyzer {
+export class SemanticAnalyzer {
+  public fileASTs = new Map<string, ASTNode[]>();
   public packages = new Map<UserPackageIdentifier, UserPackage>();
   public fileToPackage = new Map<string, UserPackageIdentifier>();
   public typeRepository: TypeRepository;
@@ -79,6 +80,7 @@ export class SemanticaAnalyzer {
       this.diagnostics
     );
     const ast = parse(tokens, this.diagnostics);
+    this.fileASTs.set(file, ast);
     const previousPkg = this.fileToPackage.get(file);
     if (previousPkg) {
       const prevUserPackage = this.packages.get(previousPkg);
@@ -106,11 +108,23 @@ export class SemanticaAnalyzer {
     }
   }
 
-  getDefinitions() {
+  getASTs() {
+    return Object.fromEntries(this.fileASTs.entries());
+  }
+
+  getPackageDefinitions() {
     return Object.fromEntries(
       this.packages
         .entries()
         .map(([k, v]) => [k, [...v.definitionsPerFile.values()].flat()])
+    );
+  }
+
+  getFileDefinitions() {
+    return Object.fromEntries(
+      [...this.packages.values()].flatMap((v) => [
+        ...v.definitionsPerFile.entries(),
+      ])
     );
   }
 }
@@ -283,7 +297,7 @@ export class UserPackage {
           node.kind === "enum-declaration" &&
           node.name.tokenType === "identifier"
         ) {
-          const def = this.analyzeEnumNode(file, node);
+          const def = this.analyzeEnumNode(node);
           if (def) {
             definitions.push(def);
           }
@@ -291,7 +305,7 @@ export class UserPackage {
           node.kind === "message-declaration" &&
           node.type.isComplete
         ) {
-          const def = this.analyzeMessageNode(file, node);
+          const def = this.analyzeMessageNode(node);
           if (def) {
             definitions.push(def);
           }
@@ -299,7 +313,7 @@ export class UserPackage {
           node.kind === "service-declaration" &&
           node.name.tokenType === "identifier"
         ) {
-          const def = this.analyzeServiceNode(file, node);
+          const def = this.analyzeServiceNode(node);
           if (def) {
             definitions.push(def);
           }
@@ -308,7 +322,7 @@ export class UserPackage {
     }
   }
 
-  private analyzeEnumNode(file: string, node: EnumNode) {
+  private analyzeEnumNode(node: EnumNode) {
     const typeDefinition = this.typeRepository.getDefinitionForNode(node);
     if (!typeDefinition) {
       this.diagnostics.logger.error(
@@ -352,7 +366,7 @@ export class UserPackage {
         field.value &&
         field.value.value.tokenType === "numeric-literal"
       ) {
-        value = Number(field.value.value);
+        value = field.value.value.value;
         ordinal = value;
         if (enumDef.valueType === "string") {
           this.diagnostics.error({
@@ -384,7 +398,7 @@ export class UserPackage {
     return enumDef;
   }
 
-  private analyzeMessageNode(file: string, node: MessageNode) {
+  private analyzeMessageNode(node: MessageNode) {
     if (!node.type.isComplete) {
       return undefined;
     }
@@ -441,7 +455,7 @@ export class UserPackage {
     return messageDef;
   }
 
-  private analyzeServiceNode(file: string, node: ServiceNode) {
+  private analyzeServiceNode(node: ServiceNode) {
     if (node.name.tokenType !== "identifier") {
       return undefined;
     }

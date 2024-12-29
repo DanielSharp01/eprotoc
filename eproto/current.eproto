@@ -1,0 +1,24 @@
+package current;
+
+enum TestEnum {
+  A = 0;
+  B = 4;
+  C = 4;
+}
+
+enum StringEnum {
+  A = "Apple";
+  B = "Banana";
+  C = "Coconut";
+}
+
+message TestMessage<T> {
+  T a;
+  optional Nullable<Array<Nullable<int32>>> b;
+  Array<string> c;
+  OneOf<int32, float> d;
+}
+
+service TestService {
+  rpc test(TestMessage) returns (StringEnum);
+}

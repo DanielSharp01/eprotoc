@@ -175,8 +175,8 @@ class Parser {
       value.equals = this.current();
       this.step();
       value.value = this.expectLiteral();
+      node.value = value as EnumFieldNode["value"];
       if (!value.value) {
-        node.value = value as EnumFieldNode["value"];
         return enumFieldNode(node);
       }
     }

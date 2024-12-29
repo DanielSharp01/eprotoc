@@ -2,42 +2,51 @@
 import { parseCommandLine } from "./command-line";
 import { DiagnosticCollection } from "./diagnostic";
 import { Logger } from "./logger";
-import { SemanticaAnalyzer } from "./analyzer";
+import { SemanticAnalyzer } from "./analyzer";
+import { ensureDirectory, prettyWriteJsonFile } from "./fs-utils";
+import { TSCodeGenerator } from "./codegen";
 import fs from "fs";
-import { inspect } from "util";
 
 const logger = new Logger("debug");
 
 async function main() {
   const diagnostics = new DiagnosticCollection(logger);
   const opts = parseCommandLine();
-  const semanticAnalyzer = new SemanticaAnalyzer(diagnostics);
+  const semanticAnalyzer = new SemanticAnalyzer(diagnostics);
+
+  fs.rmdirSync(opts.outputDir, { recursive: true });
+  ensureDirectory(logger, opts.outputDir);
 
   for (const file of new Set(opts.files)) {
     await semanticAnalyzer.parseFile(file);
   }
+
+  if (opts.printAST) {
+    prettyWriteJsonFile(logger, opts.printAST, semanticAnalyzer.getASTs());
+  }
+
   semanticAnalyzer.analyze();
   if (diagnostics.items.length > 0) {
     diagnostics.print();
     logger.info(`Compilation failed with ${diagnostics.items.length} errors`);
-  } else {
-    logger.info("Compilation successful");
-    if (opts.printDefinitions) {
-      prettyWriteJsonFile(
-        opts.printDefinitions,
-        semanticAnalyzer.getDefinitions()
-      );
-    }
+    process.exit(1);
   }
+  logger.info("Compilation successful");
+  if (opts.printDefinitions) {
+    prettyWriteJsonFile(
+      logger,
+      opts.printDefinitions,
+      semanticAnalyzer.getPackageDefinitions()
+    );
+  }
+
+  if (opts.codeGen === "skip") {
+    return;
+  }
+
+  logger.info(`Beggining code generation using ${opts.codeGen}`);
+  const generator = new TSCodeGenerator(logger);
+  generator.generate(opts.rootDir, opts.outputDir, semanticAnalyzer);
 }
 
 main();
-
-function prettyWriteJsonFile(file: string, content: unknown) {
-  if (file === "stdout") {
-    console.log(inspect(content, { depth: null, colors: true }));
-  } else {
-    fs.writeFileSync(file, JSON.stringify(content, null, 2), "utf-8");
-    logger.info(`Definitions written to ${file}`);
-  }
-}
