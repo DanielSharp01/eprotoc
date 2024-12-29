@@ -4,12 +4,13 @@ import { DiagnosticCollection } from "./diagnostic";
 import { Logger } from "./logger";
 import { SemanticaAnalyzer } from "./analyzer";
 import fs from "fs";
+import { inspect } from "util";
+
+const logger = new Logger("debug");
 
 async function main() {
-  const logger = new Logger("debug");
   const diagnostics = new DiagnosticCollection(logger);
   const opts = parseCommandLine();
-  logger.debug("Parsed opts", opts);
   const semanticAnalyzer = new SemanticaAnalyzer(diagnostics);
 
   for (const file of new Set(opts.files)) {
@@ -21,15 +22,22 @@ async function main() {
     logger.info(`Compilation failed with ${diagnostics.items.length} errors`);
   } else {
     logger.info("Compilation successful");
-    prettyWriteJsonFile(
-      "output/definitions.json",
-      semanticAnalyzer.getDefinitions()
-    );
+    if (opts.printDefinitions) {
+      prettyWriteJsonFile(
+        opts.printDefinitions,
+        semanticAnalyzer.getDefinitions()
+      );
+    }
   }
 }
 
 main();
 
 function prettyWriteJsonFile(file: string, content: unknown) {
-  fs.writeFileSync(file, JSON.stringify(content, null, 2), "utf-8");
+  if (file === "stdout") {
+    console.log(inspect(content, { depth: null, colors: true }));
+  } else {
+    fs.writeFileSync(file, JSON.stringify(content, null, 2), "utf-8");
+    logger.info(`Definitions written to ${file}`);
+  }
 }
