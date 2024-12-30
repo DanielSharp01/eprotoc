@@ -6,27 +6,30 @@ enum TestEnum {
   C = 4;
 }
 
-enum StringEnum {
+enum Fruit {
   A = "Apple";
   B = "Banana";
   C = "Coconut";
 }
 
-message Test {
-  optional StringEnum fruit;
+message Response<TPag, TItem> {
+  TPag pagination;
+  Array<TItem> items;
+}
+
+message Pagination<T> {
+  T current;
+  optional T next;
+}
+
+message Test<T> {
+  optional T fruit;
 }
 
 message Test2 {
   optional Nullable<Date> date;
 }
 
-/*message TestMessage<T> {
-  T a;
-  optional Nullable<Array<Nullable<int32>>> b;
-  Array<string> c;
-  //OneOf<int32, float> d;
-}*/
-
 service TestService {
-  rpc test(Test) returns (void);
+  rpc test(Nullable<Response<Pagination<int32>, Date>>) returns (Pagination<string>);
 }

@@ -66,7 +66,7 @@ Native still wouldn't be one to one compatbile from the parsing perspective. I j
   - [x] Generate encoder
   - [x] Generate decoder
   - [x] Generate NiceGRPC service definition
-  - [ ] Non builtin generics support
+  - [x] Non builtin generics support
   - [ ] One of support (union types)
   - [ ] Multi file importing
   - [ ] "Native" codegen

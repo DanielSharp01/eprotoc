@@ -35,6 +35,12 @@ export interface RealType {
   args: Type[];
 }
 
+export interface DeepRealType {
+  kind: "real";
+  definition: TypeDefinition;
+  args: DeepRealType[];
+}
+
 export interface GenericType {
   kind: "generic";
   name: string;
@@ -51,6 +57,19 @@ export interface MessageDefinition {
   kind: "message";
   typeDefinition: TypeDefinition;
   fields: { optional: boolean; type: Type; name: string; ordinal: number }[];
+  genericInstances: DeepRealType[][];
+}
+
+export interface RealMessageDefinition {
+  kind: "message";
+  typeDefinition: TypeDefinition;
+  fields: {
+    optional: boolean;
+    type: DeepRealType;
+    name: string;
+    ordinal: number;
+  }[];
+  args: DeepRealType[];
 }
 
 export interface ServiceDefinition {
@@ -59,8 +78,8 @@ export interface ServiceDefinition {
   package: UserPackageIdentifier;
   rpcs: {
     path: string;
-    input: { stream: boolean; type: Type };
-    output: { stream: boolean; type: Type };
+    input: { stream: boolean; type: DeepRealType };
+    output: { stream: boolean; type: DeepRealType };
   }[];
 }
 
@@ -107,6 +126,39 @@ export class SemanticAnalyzer {
     for (const pkg of this.packages.values()) {
       pkg.analyze();
     }
+    this.analyzeGenerics();
+  }
+
+  analyzeGenerics() {
+    // TODO: This method cannot be called more than once we should clear generic instances on each definition, maybe it should not even be on the message def itself
+    for (const definition of this.getDefinitions().filter(
+      (f) => f.kind === "service"
+    )) {
+      for (const rpc of definition.rpcs) {
+        this.analyzeGenericType(rpc.input.type);
+        this.analyzeGenericType(rpc.output.type);
+      }
+    }
+  }
+
+  private analyzeGenericType(type: DeepRealType) {
+    if (type.definition.kind === "message") {
+      const messageDef = this.findTypeDefinition(
+        "message",
+        type.definition.package as UserPackageIdentifier,
+        type.definition.name
+      );
+      if (!messageDef) return;
+      if (type.args.length > 0) {
+        messageDef?.genericInstances.push(type.args);
+      }
+    }
+
+    if (type.args) {
+      for (const arg of type.args) {
+        this.analyzeGenericType(arg);
+      }
+    }
   }
 
   getASTs() {
@@ -126,6 +178,12 @@ export class SemanticAnalyzer {
       [...this.packages.values()].flatMap((v) => [
         ...v.definitionsPerFile.entries(),
       ])
+    );
+  }
+
+  getDefinitions() {
+    return [...this.packages.values()].flatMap((v) =>
+      [...v.definitionsPerFile.values()].flat()
     );
   }
 
@@ -432,6 +490,7 @@ export class UserPackage {
       kind: "message",
       fields: [],
       typeDefinition,
+      genericInstances: [],
     };
     let ordinal = 1;
     for (const field of node.fields ?? []) {
@@ -487,6 +546,7 @@ export class UserPackage {
       package: this.name,
       rpcs: [],
     };
+
     for (const rpc of node.rpcs ?? []) {
       if (
         rpc.name.tokenType !== "identifier" ||
@@ -517,8 +577,11 @@ export class UserPackage {
 
       serviceDef.rpcs.push({
         path: rpc.name.value,
-        input: { stream: !!rpc.inputStream, type: inputType },
-        output: { stream: !!rpc.outputStream, type: outputType },
+        input: { stream: !!rpc.inputStream, type: inputType as DeepRealType },
+        output: {
+          stream: !!rpc.outputStream,
+          type: outputType as DeepRealType,
+        },
       });
     }
     return serviceDef;
@@ -553,6 +616,37 @@ export class UserPackage {
       idx++;
     }
   }
+}
+
+function realizeGenerics(
+  type: Type,
+  realTypeMap: Record<string, DeepRealType>
+): DeepRealType {
+  if (type.kind === "generic") {
+    return realTypeMap[type.name];
+  }
+
+  return {
+    ...type,
+    args: type.args.map((a) => realizeGenerics(a, realTypeMap)),
+  };
+}
+
+export function getRealMessageDefinition(
+  messageDef: MessageDefinition,
+  types: DeepRealType[]
+): RealMessageDefinition {
+  const realTypeMap = Object.fromEntries(
+    messageDef.typeDefinition.args.map((a, i) => [a, types[i]])
+  );
+  return {
+    ...messageDef,
+    fields: messageDef.fields.map((f) => ({
+      ...f,
+      type: realizeGenerics(f.type, realTypeMap),
+    })),
+    args: types,
+  };
 }
 
 function figureOutPackage(

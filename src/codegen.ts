@@ -1,8 +1,10 @@
 import {
-  BUILTIN_PACKAGE,
+  DeepRealType,
   Definition,
   EnumDefinition,
+  getRealMessageDefinition,
   MessageDefinition,
+  RealMessageDefinition,
   SemanticAnalyzer,
   ServiceDefinition,
   Type,
@@ -77,7 +79,6 @@ export class TSCodeGenerator {
     if (definition.kind === "enum") {
       return this.generateEnumDefinition(definition);
     } else if (definition.kind === "message") {
-      // TODO: Generics codegen does not work at all
       return this.generateMessageDefinition(definition);
     } else if (definition.kind === "service") {
       return this.generateServiceDefinition(definition);
@@ -109,11 +110,6 @@ export class TSCodeGenerator {
         ? ""
         : `<${definition.typeDefinition.args.join(", ")}>`;
 
-    const typeArgsForValue =
-      definition.typeDefinition.args.length === 0
-        ? ""
-        : `<${definition.typeDefinition.args.map((a) => "any").join(", ")}>`;
-
     const interfaceSource = [
       `export interface ${definition.typeDefinition.name}${typeArgs} {`,
       ...definition.fields.map(
@@ -123,14 +119,44 @@ export class TSCodeGenerator {
       "}",
     ].join("\n");
 
+    const realDefinitions =
+      definition.typeDefinition.args.length === 0
+        ? [{ ...definition, args: [] } as RealMessageDefinition]
+        : definition.genericInstances.map((typeArgs) =>
+            getRealMessageDefinition(definition, typeArgs)
+          );
     const objectSource = [
       `export const ${definition.typeDefinition.name} = {`,
-      `  serialize(writer: _m0.Writer, value: ${definition.typeDefinition.name}${typeArgsForValue}) {`,
+      ...realDefinitions.flatMap((def) =>
+        this.generateMessageObjectMethods(def)
+      ),
+      "}",
+    ].join("\n");
+
+    return [interfaceSource, objectSource].join("\n\n");
+  }
+
+  private generateMessageObjectMethods(definition: RealMessageDefinition) {
+    const typeArgsForValue =
+      definition.args.length === 0
+        ? ""
+        : `<${definition.args.map((a) => this.generateType(a)).join(", ")}>`;
+    const serializeKey =
+      definition.args.length === 0
+        ? "serialize"
+        : `"serialize${typeArgsForValue}"`;
+    const deserializeKey =
+      definition.args.length === 0
+        ? "deserialize"
+        : `"deserialize${typeArgsForValue}"`;
+
+    return [
+      `  ${serializeKey}(writer: _m0.Writer, value: ${definition.typeDefinition.name}${typeArgsForValue}) {`,
       "    writer.fork();",
       ...definition.fields.map((f) => this.serializeMessageField(f)),
       "    writer.ldelim();",
       "  },",
-      `  deserialize(reader: _m0.Reader): ${definition.typeDefinition.name}${typeArgsForValue} {`,
+      `  ${deserializeKey}(reader: _m0.Reader): ${definition.typeDefinition.name}${typeArgsForValue} {`,
       "    let value: any = {};",
       "    const end = reader.uint32() + reader.pos;",
       "",
@@ -145,15 +171,12 @@ export class TSCodeGenerator {
       "    }",
       "",
       "    return value;",
-      "  }",
-      "}",
-    ].join("\n");
-
-    return [interfaceSource, objectSource].join("\n\n");
+      "  },",
+    ];
   }
 
   private serializeMessageField(
-    field: MessageDefinition["fields"][number]
+    field: RealMessageDefinition["fields"][number]
   ): string {
     const source: string[] = [];
     const optionalIndent = field.optional ? "  " : "";
@@ -180,7 +203,7 @@ export class TSCodeGenerator {
   }
 
   private deserializeMessageField(
-    field: MessageDefinition["fields"][number]
+    field: RealMessageDefinition["fields"][number]
   ): string {
     return [
       `          case ${field.ordinal}:`,
@@ -294,14 +317,7 @@ export class TSCodeGenerator {
     return `${type.definition.name}${typeArgs}`;
   }
 
-  private wireTypeForType(type: Type): number {
-    if (type.kind === "generic") {
-      this.logger.error(
-        "Something went horribly wrong RPCs should not have generic types. This is a bug."
-      );
-      process.exit(1);
-    }
-
+  private wireTypeForType(type: DeepRealType): number {
     if (type.definition.kind == "builtin") {
       if (type.args.length === 0) {
         return BUILTIN_WIRE_TYPE[type.definition.name];
@@ -311,13 +327,8 @@ export class TSCodeGenerator {
     return 2;
   }
 
-  private serializerForType(type: Type, value: string): string[] {
-    if (type.kind === "generic") {
-      this.logger.error(
-        "Something went horribly wrong RPCs should not have generic types. This is a bug."
-      );
-      process.exit(1);
-    }
+  private serializerForType(type: DeepRealType, value: string): string[] {
+    const idSafeVal = safeIdentifier(value);
 
     if (type.definition.kind == "builtin") {
       if (type.args.length === 0) {
@@ -333,8 +344,8 @@ export class TSCodeGenerator {
       } else if (type.definition.name === "Array") {
         return [
           `writer.fork();`,
-          `for (const ${value}_item of ${value}) {`,
-          ...this.serializerForType(type.args[0], `${value}_item`).map(
+          `for (const ${idSafeVal}_item of ${value}) {`,
+          ...this.serializerForType(type.args[0], `${idSafeVal}_item`).map(
             (s) => `  ${s}`
           ),
           "}",
@@ -375,21 +386,25 @@ export class TSCodeGenerator {
         return [`writer.uint32(${value} as number);`];
       }
     } else if (type.definition.kind === "message") {
-      return [`${type.definition.name}.serialize(writer, ${value});`];
+      if (type.args.length > 0) {
+        return [
+          `${type.definition.name}["serialize<${type.args
+            .map((a) => this.generateType(a))
+            .join(", ")}>"](writer, ${value});`,
+        ];
+      } else {
+        return [`${type.definition.name}.serialize(writer, ${value});`];
+      }
     }
 
     return [];
   }
 
-  private deserializerForType(type: Type, value: string = "value"): string[] {
-    if (type.kind === "generic") {
-      this.logger.error(
-        "Something went horribly wrong RPCs should not have generic types. This is a bug."
-      );
-      process.exit(1);
-    }
-
-    const idSafeVal = value.replaceAll("[", "_").replaceAll("]", "");
+  private deserializerForType(
+    type: DeepRealType,
+    value: string = "value"
+  ): string[] {
+    const idSafeVal = safeIdentifier(value);
 
     if (type.definition.kind == "builtin") {
       if (type.args.length === 0) {
@@ -452,9 +467,21 @@ export class TSCodeGenerator {
         ];
       }
     } else if (type.definition.kind === "message") {
-      return [`${value} = ${type.definition.name}.deserialize(reader);`];
+      if (type.args.length > 0) {
+        return [
+          `${value} = ${type.definition.name}["deserialize<${type.args
+            .map((a) => this.generateType(a))
+            .join(", ")}>"](reader);`,
+        ];
+      } else {
+        return [`${type.definition.name}.deserialize(reader);`];
+      }
     }
 
     return [];
   }
+}
+
+function safeIdentifier(value: string) {
+  return value.replaceAll("[", "_").replaceAll("]", "").replace(".", "_");
 }
