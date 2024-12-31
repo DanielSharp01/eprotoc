@@ -9,17 +9,39 @@
   "categories": [
     "Programming Languages"
   ],
+  "scripts": {
+    "build": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "main": "./dist/extension.js",
   "contributes": {
-    "languages": [{
-      "id": "eproto",
-      "aliases": ["EProto", "eproto"],
-      "extensions": [".eproto"],
-      "configuration": "./language-configuration.json"
-    }],
-    "grammars": [{
-      "language": "eproto",
-      "scopeName": "source.eproto",
-      "path": "./syntaxes/eproto.tmLanguage.json"
-    }]
+    "languages": [
+      {
+        "id": "eproto",
+        "aliases": [
+          "EProto",
+          "eproto"
+        ],
+        "extensions": [
+          ".eproto"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "eproto",
+        "scopeName": "source.eproto",
+        "path": "./syntaxes/eproto.tmLanguage.json"
+      }
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "20.x",
+    "@types/vscode": "^1.96.0",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
   }
 }

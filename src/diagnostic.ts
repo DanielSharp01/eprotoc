@@ -1,8 +1,9 @@
-import { Logger } from "./logger";
+import { Console } from "./logger";
 import { DocumentItem } from "./tokenizer";
 
 export interface Diagnostic {
   token: DocumentItem;
+  scope: "local" | "global";
   severity: "error"; // ? We don't support anything but errors
   message: string;
 }
@@ -17,18 +18,25 @@ export function afterToken(token: DocumentItem) {
 export class DiagnosticCollection {
   public items: Diagnostic[] = [];
 
-  constructor(public logger: Logger, private trace: boolean) {}
+  constructor(public logger: Console, private trace: boolean) {}
 
-  public error(diagnostic: Omit<Diagnostic, "severity">) {
+  public error(
+    token: DocumentItem,
+    scope: "local" | "global",
+    message: string
+  ) {
+    const diagnostic = { severity: "error" as const, token, scope, message };
     if (this.trace) {
-      console.trace(formatDiagnostic({ severity: "error", ...diagnostic }));
+      console.trace(formatDiagnostic(diagnostic));
     }
 
-    this.items.push({ severity: "error", ...diagnostic });
+    this.items.push(diagnostic);
   }
 
   public removeFileDiagnostics(file: string) {
-    this.items = this.items.filter((i) => i.token.file === file);
+    this.items = this.items.filter(
+      (i) => i.token.file !== file && i.scope === "local"
+    );
   }
 
   public print() {

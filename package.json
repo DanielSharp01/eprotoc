@@ -5,16 +5,20 @@
   "bin": "dist/index.js",
   "scripts": {
     "dev": "ts-node src/index.ts -- -o ./output -d ./def.json -a ./ast.json ./eproto",
+    "dev:lsp": "ts-node src/lsp.ts -- --node-ipc",
     "build": "tsc && npm link"
   },
   "author": "",
   "license": "ISC",
   "description": "",
   "devDependencies": {
+    "@types/node-ipc": "^9.2.3",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.2"
   },
   "dependencies": {
-    "protobufjs": "^7.4.0"
+    "protobufjs": "^7.4.0",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.12"
   }
 }

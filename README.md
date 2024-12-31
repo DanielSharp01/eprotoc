@@ -45,12 +45,13 @@ Native still wouldn't be one to one compatbile from the parsing perspective. I j
 - [ ] Top level messages should not require LEN
 - [ ] "Native" codegen
 - [ ] Codegen (eproto => proto)
-- [ ] VSCode extension
-  - [ ] TextMate grammar for syntax higlighting
-  - [ ] Language server integration
+- [x] VSCode extension
+  - [x] TextMate grammar for syntax higlighting
+  - [x] Language server integration
 - [ ] Language Server
-  - [ ] Diagnostics
+  - [x] Diagnostics
+  - [x] Workspace support
+  - [ ] Improve diagnostics with relatedInfo
   - [ ] Semantic token highlighting
   - [ ] Goto definition
   - [ ] Find references
-  - [ ] Workspace support

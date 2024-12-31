@@ -91,7 +91,6 @@ export type MessageDefinition = BaseDefinition<MessageNode> &
     fields: { optional: boolean; type: Type; name: string; ordinal: number }[];
     args: GenericType[];
     restArgs: false;
-    // TODO: This has to be unique (so kind of a Set but that doesn't work with array)
     genericInstances: GenericTypeInstance[];
   };
 
@@ -143,9 +142,10 @@ export class SemanticAnalyzer {
       const idToken = getIdToken(definition.astNode);
       const redefinition = definedSymbols.get(definition.name);
       if (redefinition) {
-        this.diagnostics.error({
-          token: idToken,
-          message: `Name "${
+        this.diagnostics.error(
+          idToken,
+          "global",
+          `Name "${
             redefinition.token.value
           }" cannot be used for ${definition.kind.replace(
             "-",
@@ -153,8 +153,8 @@ export class SemanticAnalyzer {
           )} because it already exists as a ${redefinition.kind.replace(
             "-",
             " "
-          )} at ${atToken(redefinition.token)}`,
-        });
+          )} at ${atToken(redefinition.token)}`
+        );
       } else {
         definedSymbols.set(idToken.value, {
           token: idToken,
@@ -166,6 +166,9 @@ export class SemanticAnalyzer {
 
   analyze() {
     for (const definition of this.definitions) {
+      if (definition.kind === "message") {
+        definition.genericInstances = [];
+      }
       this.analyzeDefinition(definition);
     }
   }
@@ -193,12 +196,13 @@ export class SemanticAnalyzer {
 
       const redefinition = definedFields.get((field.name as StringToken).value);
       if (redefinition) {
-        this.diagnostics.error({
-          token: field.name,
-          message: `Field "${redefinition.value}" in message "${
+        this.diagnostics.error(
+          field.name,
+          "local",
+          `Field "${redefinition.value}" in message "${
             definition.name
-          }" already exists at ${atToken(redefinition)}`,
-        });
+          }" already exists at ${atToken(redefinition)}`
+        );
       } else {
         definedFields.set(
           (field.name as StringToken).value,
@@ -209,13 +213,13 @@ export class SemanticAnalyzer {
       if (field.ordinal) {
         const newOrdinal = (field.ordinal.value as NumberToken).value;
         if (newOrdinal < ordinal) {
-          this.diagnostics.error({
-            token: field.ordinal.value,
-            message:
-              newOrdinal < 1
-                ? "Message field numbers must be greater than 0."
-                : "Message field numbers must be sequential.",
-          });
+          this.diagnostics.error(
+            field.ordinal.value,
+            "local",
+            newOrdinal < 1
+              ? "Message field numbers must be greater than 0."
+              : "Message field numbers must be sequential."
+          );
         }
       }
 
@@ -238,12 +242,13 @@ export class SemanticAnalyzer {
     for (const rpc of definition.astNode.rpcs) {
       const redefinition = definedRPCs.get((rpc.name as StringToken).value);
       if (redefinition) {
-        this.diagnostics.error({
-          token: rpc.name,
-          message: `RPC "${redefinition.value}" already exists in service "${
+        this.diagnostics.error(
+          rpc.name,
+          "local",
+          `RPC "${redefinition.value}" already exists in service "${
             definition.name
-          }" at ${atToken(redefinition)}`,
-        });
+          }" at ${atToken(redefinition)}`
+        );
       } else {
         definedRPCs.set(
           (rpc.name as StringToken).value,
@@ -282,10 +287,11 @@ export class SemanticAnalyzer {
       typeArgs.some((arg) => arg.name === name[0].value)
     ) {
       if (typeNode.args.length > 0 && typeNode.args[0].identifier.isComplete) {
-        this.diagnostics.error({
-          token: typeNode.args[0].identifier.tokens[0],
-          message: `Generic type "${name[0]}" must not have a generic argument`,
-        });
+        this.diagnostics.error(
+          typeNode.args[0].identifier.tokens[0],
+          "local",
+          `Generic type "${name[0]}" must not have a generic argument`
+        );
         return undefined;
       }
 
@@ -329,10 +335,11 @@ export class SemanticAnalyzer {
     const diagnosticName = name.map((t) => t.value).join("");
 
     if (!resolvedType) {
-      this.diagnostics.error({
-        token: typeNode.identifier.tokens[0],
-        message: `Unknown type "${diagnosticName}"`,
-      });
+      this.diagnostics.error(
+        typeNode.identifier.tokens[0],
+        "global",
+        `Unknown type "${diagnosticName}"`
+      );
       return undefined;
     }
 
@@ -345,13 +352,13 @@ export class SemanticAnalyzer {
         continue;
       }
       if (!resolvedType.restArgs && idx >= resolvedType.args.length) {
-        this.diagnostics.error({
-          token: generic.identifier.tokens[0],
-          message:
-            resolvedType.args.length === 0
-              ? `Type "${diagnosticName}" does not have generic arguments`
-              : `Type "${diagnosticName}" only has ${resolvedType.args.length} generic arguments`,
-        });
+        this.diagnostics.error(
+          generic.identifier.tokens[0],
+          "global",
+          resolvedType.args.length === 0
+            ? `Type "${diagnosticName}" does not have generic arguments`
+            : `Type "${diagnosticName}" only has ${resolvedType.args.length} generic arguments`
+        );
       }
       const verified = this.resolveType(definition, generic);
       if (!verified) {
@@ -386,47 +393,6 @@ export class SemanticAnalyzer {
       this.addGenericMessageInstances(arg);
     }
   }
-
-  /*getASTs() {
-    return Object.fromEntries(this.fileASTs.entries());
-  }
-
-  getPackageDefinitions() {
-    return Object.fromEntries(
-      this.packages
-        .entries()
-        .map(([k, v]) => [k, [...v.definitionsPerFile.values()].flat()])
-    );
-  }
-
-  getFileDefinitions() {
-    return Object.fromEntries(
-      [...this.packages.values()].flatMap((v) => [
-        ...v.definitionsPerFile.entries(),
-      ])
-    );
-  }
-
-  getDefinitions() {
-    return [...this.packages.values()].flatMap((v) =>
-      [...v.definitionsPerFile.values()].flat()
-    );
-  }
-
-  findTypeDefinition<T extends "enum" | "message">(
-    kind: T,
-    pkg: UserPackageId,
-    name: string
-  ): (Definition & { kind: T }) | undefined {
-    const userPackage = this.packages.get(pkg);
-    if (!userPackage) return undefined;
-
-    return [...userPackage.definitionsPerFile.values()]
-      .flat()
-      .find((def) => def.kind === kind && def.typeDefinition.name === name) as
-      | (Definition & { kind: T })
-      | undefined;
-  }*/
 }
 
 function getCurrentPackageFromNodes(
@@ -436,16 +402,17 @@ function getCurrentPackageFromNodes(
 ) {
   const packageDefinitions = ast.filter((p) => p.kind === "package");
   if (packageDefinitions.length === 0) {
-    diagnostics.error({
-      token: {
+    diagnostics.error(
+      {
         file,
         range: {
           start: { line: 0, character: 0 },
           end: { line: 0, character: 0 },
         },
       },
-      message: "Every file requires a package definition",
-    });
+      "local",
+      "Every file requires a package definition"
+    );
     return UNKNOWN_PACKAGE;
   }
 
@@ -454,10 +421,11 @@ function getCurrentPackageFromNodes(
   }
 
   for (const packageDefinition of packageDefinitions.slice(1)) {
-    diagnostics.error({
-      token: packageDefinition.keyword,
-      message: "Multiple package definitions are not allowed.",
-    });
+    diagnostics.error(
+      packageDefinition.keyword,
+      "local",
+      "Multiple package definitions are not allowed."
+    );
   }
 
   return (packageDefinitions[0].identifier.tokens as StringToken[])
@@ -492,12 +460,13 @@ function astNodeToDefinition(
 
       const redefinition = definedFields.get((field.name as StringToken).value);
       if (redefinition) {
-        diagnostics.error({
-          token: field.name,
-          message: `Field "${redefinition.value}" in enum "${
+        diagnostics.error(
+          field.name,
+          "local",
+          `Field "${redefinition.value}" in enum "${
             def.name
-          }" already exists at ${atToken(redefinition)}`,
-        });
+          }" already exists at ${atToken(redefinition)}`
+        );
       } else {
         definedFields.set(
           (field.name as StringToken).value,
@@ -533,12 +502,13 @@ function astNodeToDefinition(
     for (const field of node.fields) {
       const redefinition = definedFields.get((field as StringToken).value);
       if (redefinition) {
-        diagnostics.error({
-          token: field,
-          message: `Field "${redefinition.value}" in string enum "${
+        diagnostics.error(
+          field,
+          "local",
+          `Field "${redefinition.value}" in string enum "${
             def.name
-          }" already exists at ${atToken(redefinition)}`,
-        });
+          }" already exists at ${atToken(redefinition)}`
+        );
       } else {
         definedFields.set((field as StringToken).value, field as StringToken);
       }
@@ -564,19 +534,19 @@ function astNodeToDefinition(
 
     for (const arg of node.type.args) {
       if (arg.args.length > 0) {
-        diagnostics.error({
-          token: arg.args[0].identifier.tokens[0],
-          message:
-            "Generic arguments must be simple indentifiers and must not themselves be generic.",
-        });
+        diagnostics.error(
+          arg.args[0].identifier.tokens[0],
+          "local",
+          "Generic arguments must be simple indentifiers and must not themselves be generic."
+        );
         return undefined;
       }
       if (arg.identifier.tokens.length > 1) {
-        diagnostics.error({
-          token: arg.args[0].identifier.tokens[0],
-          message:
-            "Generic arguments must be simple indentifiers and must not have package prefixes.",
-        });
+        diagnostics.error(
+          arg.args[0].identifier.tokens[0],
+          "local",
+          "Generic arguments must be simple indentifiers and must not have package prefixes."
+        );
         return undefined;
       }
       def.args.push({
@@ -602,7 +572,10 @@ function astNodeToDefinition(
 
   if (node.kind === "enum" && node.name.tokenType === "identifier") {
     return enumDefinition(node);
-  } else if (node.kind === "string-enum" && node.name.tokenType === "identifier") {
+  } else if (
+    node.kind === "string-enum" &&
+    node.name.tokenType === "identifier"
+  ) {
     return stringEnumDefinition(node);
   } else if (node.kind === "message" && node.type.isComplete) {
     return messageDefinition(node);

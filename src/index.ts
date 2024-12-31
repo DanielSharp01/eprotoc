@@ -12,9 +12,8 @@ import { groupByMultiple } from "./utils/group-by";
 
 const logger = new Logger("debug");
 
-async function main() {
+function generator(opts: ReturnType<typeof parseCommandLine>) {
   const diagnostics = new DiagnosticCollection(logger, true);
-  const opts = parseCommandLine();
   const semanticAnalyzer = new SemanticAnalyzer(diagnostics);
   const generator = new TSCodeGenerator(logger);
 
@@ -82,4 +81,5 @@ async function main() {
   logger.info("Generation successful!");
 }
 
-main();
+const opts = parseCommandLine();
+generator(opts);

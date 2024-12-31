@@ -39,10 +39,11 @@ class Parser {
       return this.parsePackageDefinition();
     }
 
-    this.diagnostics.error({
-      token: current,
-      message: `Unknown top level ${current.tokenType} "${current.value}"`,
-    });
+    this.diagnostics.error(
+      current,
+      "local",
+      `Unknown top level ${current.tokenType} "${current.value}"`
+    );
     this.step();
     return undefined;
   }
@@ -56,10 +57,11 @@ class Parser {
       this.step();
       return current;
     }
-    this.diagnostics.error({
-      token: afterToken(current),
-      message: `Expected "${tokenValue}"`,
-    });
+    this.diagnostics.error(
+      afterToken(current),
+      "local",
+      `Expected "${tokenValue}"`
+    );
     return undefined;
   }
 
@@ -69,10 +71,11 @@ class Parser {
       this.step();
       return current;
     }
-    this.diagnostics.error({
-      token: afterToken(current),
-      message: `Expected identifier"`,
-    });
+    this.diagnostics.error(
+      afterToken(current),
+      "local",
+      `Expected identifier"`
+    );
     return undefined;
   }
 
@@ -82,10 +85,7 @@ class Parser {
       this.step();
       return current;
     }
-    this.diagnostics.error({
-      token: afterToken(current),
-      message: `Expected number"`,
-    });
+    this.diagnostics.error(afterToken(current), "local", `Expected number"`);
     return undefined;
   }
 
@@ -95,10 +95,7 @@ class Parser {
       this.step();
       return current;
     }
-    this.diagnostics.error({
-      token: afterToken(current),
-      message: `Expected string"`,
-    });
+    this.diagnostics.error(afterToken(current), "local", `Expected string"`);
     return undefined;
   }
 

@@ -17,7 +17,7 @@ import {
   swapExtension,
   writeSourceFile,
 } from "./utils/fs-utils";
-import { Logger } from "./logger";
+import { Console } from "./logger";
 
 const BUILTIN_TS_TYPE = {
   int32: "number",
@@ -85,7 +85,7 @@ function addTypeToImports(
 }
 
 export class TSCodeGenerator {
-  constructor(private logger: Logger) {}
+  constructor(private logger: Console) {}
 
   generate(rootDir: string, outputDir: string, definitions: Definition[]) {
     for (const file of new Set(definitions.map((d) => d.astNode.file))) {

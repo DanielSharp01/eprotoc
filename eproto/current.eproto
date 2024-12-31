@@ -21,7 +21,7 @@ message Test<T> {
 }
 
 message Test2 {
-  optional Nullable<sub_asd.Fruit> fruit;
+  optional Nullable<sub.Fruit> fruit;
 }
 
 service TestService {

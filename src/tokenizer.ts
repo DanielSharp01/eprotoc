@@ -277,10 +277,11 @@ export function tokenize(
       if (SYMBOLS.includes(token.value)) {
         (token as Token).tokenType = "symbol";
       } else {
-        diagnosticCollection.error({
-          token: token,
-          message: `Uknown symbol "${token.value}"`,
-        });
+        diagnosticCollection.error(
+          token,
+          "local",
+          `Uknown symbol "${token.value}"`
+        );
       }
     }
   }

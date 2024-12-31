@@ -1,4 +1,4 @@
-package current.sub_asd;
+package current.sub;
 
 string enum Fruit {
   "Apple",

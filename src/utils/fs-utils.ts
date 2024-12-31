@@ -1,13 +1,9 @@
 import fs from "fs";
 import path from "path";
 import { inspect } from "util";
-import { Logger } from "../logger";
+import { Console } from "../logger";
 
-export function prettyWriteJsonFile(
-  logger: Logger,
-  file: string,
-  content: unknown
-) {
+export function prettyWriteJsonFile(logger: Console, file: string, content: unknown) {
   if (file === "stdout") {
     console.log(inspect(content, { depth: null, colors: true }));
   } else {
@@ -17,7 +13,7 @@ export function prettyWriteJsonFile(
   }
 }
 
-export function ensureDirectory(logger: Logger, dir: string) {
+export function ensureDirectory(logger: Console, dir: string) {
   const dirStat = fs.existsSync(dir) ? fs.statSync(dir) : undefined;
   if (!dirStat) {
     try {
