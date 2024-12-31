@@ -9,7 +9,7 @@ import {
   TypeNode,
 } from "./parser";
 import { NumberToken, StringToken, Token } from "./tokenizer";
-import { DiagnosticCollection } from "./diagnostic";
+import { atToken, DiagnosticCollection } from "./diagnostic";
 
 export const BUILTIN_PACKAGE = Symbol("BUILTIN_PACKAGE");
 export const UNKNOWN_PACKAGE = Symbol("UNKNOWN_PACKAGE");
@@ -23,7 +23,9 @@ export type Definition =
   | MessageDefinition
   | ServiceDefinition;
 
-export interface BaseDefinition<TNode extends ASTNode> {
+export interface BaseDefinition<
+  TNode extends EnumNode | StringEnumNode | MessageNode | ServiceNode
+> {
   packageId: PackageId;
   astNode: TNode & { file: string };
   name: string;
@@ -125,9 +127,41 @@ export class SemanticAnalyzer {
       astNodes,
       this.diagnostics
     );
-    this.definitions = astNodes
-      .map((a) => astNodeToDefinition(file, a, packageId, this.diagnostics))
-      .filter((f) => !!f);
+    this.definitions.push(
+      ...astNodes
+        .map((a) => astNodeToDefinition(file, a, packageId, this.diagnostics))
+        .filter((f) => !!f)
+    );
+
+    const definedSymbols = new Map<
+      string,
+      { kind: ASTNode["kind"]; token: StringToken }
+    >();
+    for (const definition of this.definitions.filter(
+      (d) => d.packageId === packageId
+    )) {
+      const idToken = getIdToken(definition.astNode);
+      const redefinition = definedSymbols.get(definition.name);
+      if (redefinition) {
+        this.diagnostics.error({
+          token: idToken,
+          message: `Name "${
+            redefinition.token.value
+          }" cannot be used for ${definition.kind.replace(
+            "-",
+            " "
+          )} because it already exists as a ${redefinition.kind.replace(
+            "-",
+            " "
+          )} at ${atToken(redefinition.token)}`,
+        });
+      } else {
+        definedSymbols.set(idToken.value, {
+          token: idToken,
+          kind: definition.astNode.kind,
+        });
+      }
+    }
   }
 
   analyze() {
@@ -151,14 +185,32 @@ export class SemanticAnalyzer {
 
   analyzeMessageFields(definition: MessageDefinition) {
     let ordinal = 1;
+
+    const definedFields = new Map<string, StringToken>();
+
     for (const field of definition.astNode.fields) {
       if (!field.isComplete) continue;
+
+      const redefinition = definedFields.get((field.name as StringToken).value);
+      if (redefinition) {
+        this.diagnostics.error({
+          token: field.name,
+          message: `Field "${redefinition.value}" in message "${
+            definition.name
+          }" already exists at ${atToken(redefinition)}`,
+        });
+      } else {
+        definedFields.set(
+          (field.name as StringToken).value,
+          field.name as StringToken
+        );
+      }
 
       if (field.ordinal) {
         const newOrdinal = (field.ordinal.value as NumberToken).value;
         if (newOrdinal < ordinal) {
           this.diagnostics.error({
-            item: field.ordinal.value,
+            token: field.ordinal.value,
             message:
               newOrdinal < 1
                 ? "Message field numbers must be greater than 0."
@@ -181,7 +233,24 @@ export class SemanticAnalyzer {
   }
 
   analyzeServiceRPCs(definition: ServiceDefinition) {
+    const definedRPCs = new Map<string, StringToken>();
+
     for (const rpc of definition.astNode.rpcs) {
+      const redefinition = definedRPCs.get((rpc.name as StringToken).value);
+      if (redefinition) {
+        this.diagnostics.error({
+          token: rpc.name,
+          message: `RPC "${redefinition.value}" already exists in service "${
+            definition.name
+          }" at ${atToken(redefinition)}`,
+        });
+      } else {
+        definedRPCs.set(
+          (rpc.name as StringToken).value,
+          rpc.name as StringToken
+        );
+      }
+
       const requestType = this.serviceResolveType(definition, rpc.requestType);
       const responseType = this.serviceResolveType(
         definition,
@@ -214,7 +283,7 @@ export class SemanticAnalyzer {
     ) {
       if (typeNode.args.length > 0 && typeNode.args[0].identifier.isComplete) {
         this.diagnostics.error({
-          item: typeNode.args[0].identifier.tokens[0],
+          token: typeNode.args[0].identifier.tokens[0],
           message: `Generic type "${name[0]}" must not have a generic argument`,
         });
         return undefined;
@@ -242,7 +311,6 @@ export class SemanticAnalyzer {
             (d) => d.name === typeName && d.packageId === definition.packageId
           );
     } else {
-      console.log(this.definitions);
       resolvedType =
         this.definitions
           .filter((d) => d.kind !== "service")
@@ -262,7 +330,7 @@ export class SemanticAnalyzer {
 
     if (!resolvedType) {
       this.diagnostics.error({
-        item: typeNode.identifier.tokens[0],
+        token: typeNode.identifier.tokens[0],
         message: `Unknown type "${diagnosticName}"`,
       });
       return undefined;
@@ -278,7 +346,7 @@ export class SemanticAnalyzer {
       }
       if (!resolvedType.restArgs && idx >= resolvedType.args.length) {
         this.diagnostics.error({
-          item: generic.identifier.tokens[0],
+          token: generic.identifier.tokens[0],
           message:
             resolvedType.args.length === 0
               ? `Type "${diagnosticName}" does not have generic arguments`
@@ -366,10 +434,10 @@ function getCurrentPackageFromNodes(
   ast: ASTNode[],
   diagnostics: DiagnosticCollection
 ) {
-  const packageDefinitions = ast.filter((p) => p.kind === "package-definition");
+  const packageDefinitions = ast.filter((p) => p.kind === "package");
   if (packageDefinitions.length === 0) {
     diagnostics.error({
-      item: {
+      token: {
         file,
         range: {
           start: { line: 0, character: 0 },
@@ -387,7 +455,7 @@ function getCurrentPackageFromNodes(
 
   for (const packageDefinition of packageDefinitions.slice(1)) {
     diagnostics.error({
-      item: packageDefinition.keyword,
+      token: packageDefinition.keyword,
       message: "Multiple package definitions are not allowed.",
     });
   }
@@ -416,8 +484,26 @@ function astNodeToDefinition(
     };
 
     let value = 0;
+
+    const definedFields = new Map<string, StringToken>();
+
     for (const field of node.fields) {
       if (!field.isComplete) continue;
+
+      const redefinition = definedFields.get((field.name as StringToken).value);
+      if (redefinition) {
+        diagnostics.error({
+          token: field.name,
+          message: `Field "${redefinition.value}" in enum "${
+            def.name
+          }" already exists at ${atToken(redefinition)}`,
+        });
+      } else {
+        definedFields.set(
+          (field.name as StringToken).value,
+          field.name as StringToken
+        );
+      }
 
       if (field.value) {
         value = (field.value.value as NumberToken).value;
@@ -439,8 +525,26 @@ function astNodeToDefinition(
       packageId,
       args: [],
       restArgs: false,
-      fields: node.fields.map((field) => (field as StringToken).value),
+      fields: [],
     };
+
+    const definedFields = new Map<string, StringToken>();
+
+    for (const field of node.fields) {
+      const redefinition = definedFields.get((field as StringToken).value);
+      if (redefinition) {
+        diagnostics.error({
+          token: field,
+          message: `Field "${redefinition.value}" in string enum "${
+            def.name
+          }" already exists at ${atToken(redefinition)}`,
+        });
+      } else {
+        definedFields.set((field as StringToken).value, field as StringToken);
+      }
+
+      def.fields.push((field as StringToken).value);
+    }
 
     return def;
   }
@@ -461,7 +565,7 @@ function astNodeToDefinition(
     for (const arg of node.type.args) {
       if (arg.args.length > 0) {
         diagnostics.error({
-          item: arg.args[0].identifier.tokens[0],
+          token: arg.args[0].identifier.tokens[0],
           message:
             "Generic arguments must be simple indentifiers and must not themselves be generic.",
         });
@@ -469,7 +573,7 @@ function astNodeToDefinition(
       }
       if (arg.identifier.tokens.length > 1) {
         diagnostics.error({
-          item: arg.args[0].identifier.tokens[0],
+          token: arg.args[0].identifier.tokens[0],
           message:
             "Generic arguments must be simple indentifiers and must not have package prefixes.",
         });
@@ -496,22 +600,13 @@ function astNodeToDefinition(
     return def;
   }
 
-  if (
-    node.kind === "enum-declaration" &&
-    node.name.tokenType === "identifier"
-  ) {
+  if (node.kind === "enum" && node.name.tokenType === "identifier") {
     return enumDefinition(node);
-  } else if (
-    node.kind === "string-enum-declaration" &&
-    node.name.tokenType === "identifier"
-  ) {
+  } else if (node.kind === "string-enum" && node.name.tokenType === "identifier") {
     return stringEnumDefinition(node);
-  } else if (node.kind === "message-declaration" && node.type.isComplete) {
+  } else if (node.kind === "message" && node.type.isComplete) {
     return messageDefinition(node);
-  } else if (
-    node.kind === "service-declaration" &&
-    node.name.tokenType === "identifier"
-  ) {
+  } else if (node.kind === "service" && node.name.tokenType === "identifier") {
     return serviceDefinition(node);
   }
 
@@ -596,14 +691,16 @@ function builtinTypes() {
     args: [{ typeKind: "generic", name: "T" }],
     restArgs: false,
   });
-  ret.push({
-    kind: "builtin",
-    typeKind: "real",
-    packageId: BUILTIN_PACKAGE,
-    name: "OneOf",
-    args: [],
-    restArgs: true,
-  });
 
   return ret;
+}
+
+function getIdToken(
+  node: MessageNode | ServiceNode | EnumNode | StringEnumNode
+) {
+  if (node.kind === "message") {
+    return node.type.identifier.tokens[0] as StringToken;
+  } else {
+    return node.name as StringToken;
+  }
 }

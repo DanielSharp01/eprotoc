@@ -36,6 +36,7 @@ async function main() {
   for (const [file, ast] of Object.entries(fileASTs)) {
     semanticAnalyzer.analyzeASTNodes(file, ast);
   }
+  semanticAnalyzer.analyze();
 
   if (diagnostics.items.length > 0) {
     diagnostics.print();
@@ -47,7 +48,12 @@ async function main() {
     prettyWriteJsonFile(
       logger,
       opts.printDefinitions,
-      groupByMultiple(semanticAnalyzer.definitions, (d) => d.packageId)
+      Object.fromEntries(
+        groupByMultiple(
+          semanticAnalyzer.definitions,
+          (d) => d.packageId
+        ).entries()
+      )
     );
   }
 

@@ -2,15 +2,15 @@ import { Logger } from "./logger";
 import { DocumentItem } from "./tokenizer";
 
 export interface Diagnostic {
-  item: DocumentItem;
+  token: DocumentItem;
   severity: "error"; // ? We don't support anything but errors
   message: string;
 }
 
-export function afterItem(item: DocumentItem) {
+export function afterToken(token: DocumentItem) {
   return {
-    file: item.file,
-    range: { start: item.range.end, end: item.range.end },
+    file: token.file,
+    range: { start: token.range.end, end: token.range.end },
   };
 }
 
@@ -28,7 +28,7 @@ export class DiagnosticCollection {
   }
 
   public removeFileDiagnostics(file: string) {
-    this.items = this.items.filter((i) => i.item.file === file);
+    this.items = this.items.filter((i) => i.token.file === file);
   }
 
   public print() {
@@ -40,8 +40,14 @@ export class DiagnosticCollection {
   }
 }
 
+export function atToken(token: DocumentItem): string {
+  return `${token.file}:${token.range.start.line + 1}:${
+    token.range.start.character + 1
+  }`;
+}
+
 function formatDiagnostic(diagnostic: Diagnostic): string {
-  return `${diagnostic.item.file}:${diagnostic.item.range.start.line + 1}:${
-    diagnostic.item.range.start.character + 1
-  } - ${diagnostic.severity}: ${diagnostic.message}`;
+  return `${atToken(diagnostic.token)} - ${diagnostic.severity}: ${
+    diagnostic.message
+  }`;
 }

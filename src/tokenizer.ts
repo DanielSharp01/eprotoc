@@ -278,7 +278,7 @@ export function tokenize(
         (token as Token).tokenType = "symbol";
       } else {
         diagnosticCollection.error({
-          item: token,
+          token: token,
           message: `Uknown symbol "${token.value}"`,
         });
       }

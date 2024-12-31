@@ -8,7 +8,6 @@ import {
   MessageDefinition,
   realizeMessageDefinition,
   RealMessageDefinition,
-  SemanticAnalyzer,
   ServiceDefinition,
   StringEnumDefinition,
   Type,
@@ -88,15 +87,9 @@ function addTypeToImports(
 export class TSCodeGenerator {
   constructor(private logger: Logger) {}
 
-  // TODO: This is kind of ugly (not just the !)
-
   generate(rootDir: string, outputDir: string, definitions: Definition[]) {
-    for (const file of new Set(
-      definitions.map((d) => d.astNode.file)
-    )) {
-      const defs = definitions.filter(
-        (d) => d.astNode.file === file
-      );
+    for (const file of new Set(definitions.map((d) => d.astNode.file))) {
+      const defs = definitions.filter((d) => d.astNode.file === file);
       const context: CodeGenContext = {
         currentFile: file,
         currentPackage: defs[0].packageId as string,
@@ -181,7 +174,11 @@ export class TSCodeGenerator {
     definition: MessageDefinition
   ): string {
     const typeArgs =
-      definition.args.length === 0 ? "" : `<${definition.args.join(", ")}>`;
+      definition.args.length === 0
+        ? ""
+        : `<${definition.args
+            .map((a) => this.generateType(context, a))
+            .join(", ")}>`;
 
     const interfaceSource = [
       `export interface ${definition.name}${typeArgs} {`,
@@ -399,10 +396,6 @@ export class TSCodeGenerator {
     if (type.kind == "builtin") {
       if (type.args.length === 0) {
         return BUILTIN_TS_TYPE[type.name];
-      } else if (type.name === "OneOf") {
-        return [
-          ...new Set(type.args.map((a) => this.generateType(context, a))),
-        ].join(" | ");
       } else if (type.name === "Nullable") {
         return `${this.generateType(context, type.args[0])} | null`;
       } else {
@@ -443,8 +436,6 @@ export class TSCodeGenerator {
         } else {
           return [`writer.${type.name}(${value});`];
         }
-      } else if (type.name === "OneOf") {
-        return ["// TODO: I don't know how to implement this"];
       } else if (type.name === "Array") {
         return [
           `writer.fork();`,
@@ -509,8 +500,6 @@ export class TSCodeGenerator {
         } else {
           return [`${value} = reader.${type.name}();`];
         }
-      } else if (type.name === "OneOf") {
-        return ["// TODO: I don't know how to implement this"];
       } else if (type.name === "Array") {
         return [
           `${value} = [];`,

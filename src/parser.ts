@@ -1,4 +1,4 @@
-import { afterItem, DiagnosticCollection } from "./diagnostic";
+import { afterToken, DiagnosticCollection } from "./diagnostic";
 import { NumberToken, StringToken, Token } from "./tokenizer";
 
 class Parser {
@@ -40,7 +40,7 @@ class Parser {
     }
 
     this.diagnostics.error({
-      item: current,
+      token: current,
       message: `Unknown top level ${current.tokenType} "${current.value}"`,
     });
     this.step();
@@ -57,7 +57,7 @@ class Parser {
       return current;
     }
     this.diagnostics.error({
-      item: afterItem(current),
+      token: afterToken(current),
       message: `Expected "${tokenValue}"`,
     });
     return undefined;
@@ -70,7 +70,7 @@ class Parser {
       return current;
     }
     this.diagnostics.error({
-      item: afterItem(current),
+      token: afterToken(current),
       message: `Expected identifier"`,
     });
     return undefined;
@@ -83,7 +83,7 @@ class Parser {
       return current;
     }
     this.diagnostics.error({
-      item: afterItem(current),
+      token: afterToken(current),
       message: `Expected number"`,
     });
     return undefined;
@@ -96,7 +96,7 @@ class Parser {
       return current;
     }
     this.diagnostics.error({
-      item: afterItem(current),
+      token: afterToken(current),
       message: `Expected string"`,
     });
     return undefined;
@@ -410,14 +410,14 @@ export interface EOFNode {
 }
 
 export interface PackageNode {
-  kind: "package-definition";
+  kind: "package";
   keyword: Token;
   identifier: IdentifierNode;
   isComplete: boolean;
 }
 
 export function packageNode(node: Partial<PackageNode>) {
-  node.kind = "package-definition";
+  node.kind = "package";
   if (node.isComplete !== false) {
     node.isComplete = !!node.identifier?.isComplete;
   }
@@ -425,7 +425,7 @@ export function packageNode(node: Partial<PackageNode>) {
 }
 
 export interface MessageNode {
-  kind: "message-declaration";
+  kind: "message";
   keyword: Token;
   type: TypeNode;
   fields: MessageFieldNode[];
@@ -433,7 +433,7 @@ export interface MessageNode {
 }
 
 export function messageNode(node: Partial<MessageNode>) {
-  node.kind = "message-declaration";
+  node.kind = "message";
   node.type = node.type ?? typeNode({});
   node.fields = node.fields ?? [];
   if (node.isComplete !== false) {
@@ -470,7 +470,7 @@ export function messageFieldNode(node: Partial<MessageFieldNode>) {
 }
 
 export interface ServiceNode {
-  kind: "service-declaration";
+  kind: "service";
   keyword: Token;
   name: Token;
   rpcs: RPCNode[];
@@ -478,7 +478,7 @@ export interface ServiceNode {
 }
 
 export function serviceNode(node: Partial<ServiceNode>) {
-  node.kind = "service-declaration";
+  node.kind = "service";
   node.rpcs = node.rpcs ?? [];
   if (node.isComplete !== false) {
     node.isComplete = node.name && node.name.tokenType !== "unknown";
@@ -512,7 +512,7 @@ export function rpcNode(node: Partial<RPCNode>) {
 }
 
 export interface EnumNode {
-  kind: "enum-declaration";
+  kind: "enum";
   keyword: Token;
   name: Token;
   fields: EnumFieldNode[];
@@ -520,7 +520,7 @@ export interface EnumNode {
 }
 
 export function enumNode(node: Partial<EnumNode>) {
-  node.kind = "enum-declaration";
+  node.kind = "enum";
   node.fields = node.fields ?? [];
   if (node.isComplete !== false) {
     node.isComplete = node.name && node.name.tokenType !== "unknown";
@@ -553,7 +553,7 @@ export function enumFieldNode(node: Partial<EnumFieldNode>) {
 }
 
 export interface StringEnumNode {
-  kind: "string-enum-declaration";
+  kind: "string-enum";
   stringKeyword: Token;
   enumKeyword: Token;
   name: Token;
@@ -562,7 +562,7 @@ export interface StringEnumNode {
 }
 
 export function stringEnumNode(node: Partial<StringEnumNode>) {
-  node.kind = "string-enum-declaration";
+  node.kind = "string-enum";
   node.enumKeyword = node.enumKeyword ?? ERROR_TOKEN;
   node.fields = node.fields ?? [];
   if (node.isComplete !== false) {

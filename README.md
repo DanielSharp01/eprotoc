@@ -4,17 +4,17 @@
 
 ## Differences from protobuf
 
-- `eproto` uses packages like module system instead of importing files
-- `eproto` supports generics
-- `eproto` supports Date as a builtin type
-- arrays are now represented with a generic type `Array<TypeArg>`
-- oneOf is now a generic type `OneOf<TypeArg1, TypeArg2, ...>` and  does not support custom field numbers
-- `eproto` enums can be string and integer enums as well
+- Packages like module system instead of importing files
+- Generics support
+- Date as a builtin type
+- Instead of `repeated` the generic type `Array<T>` is used
+- There are string enums next to numeric ones
 
-- `eproto` does not currently support more complex types such as Map, any, etc.
-- `eproto` does not support reserved fields
-- `eproto` does not support nested messages
-- `eproto` does not support the notion of options
+- No reserved fields
+- No `OneOf` it's equivalent to a message with optional arguments where only one can be given
+- No nested messages
+- No keyword `option` on definitions
+- Enums don't support string values for that there is string enum
 
 ## "Evolved" eproto
 
@@ -42,31 +42,15 @@ Native still wouldn't be one to one compatbile from the parsing perspective. I j
 
 ## Development
 
-- [x] Tokenizer
-- [x] Parser
-- [x] Analyzer
-  - [x] Analyze value type of enums
-  - [x] Analyze message ordinals
-  - [x] Analyze message field types
-  - [x] Analyze RPC input and output types
-  - [x] Get definitions for codegen
-  - [ ] Handle duplicate symbols
+- [ ] Top level messages should not require LEN
+- [ ] "Native" codegen
+- [ ] Codegen (eproto => proto)
 - [ ] VSCode extension
   - [ ] TextMate grammar for syntax higlighting
   - [ ] Language server integration
 - [ ] Language Server
-  - [x] Work done to be able to do per file compilation
-  - [ ] Workspace support
+  - [ ] Diagnostics
   - [ ] Semantic token highlighting
   - [ ] Goto definition
   - [ ] Find references
-  - [ ] Diagnostics
-- [ ] Codegen (eproto => TypeScript / Nice GRPC)
-  - [x] Generate encoder
-  - [x] Generate decoder
-  - [x] Generate NiceGRPC service definition
-  - [x] Non builtin generics support
-  - [x] Multi file importing
-  - [ ] One of support (union types)
-  - [ ] "Native" codegen
-- [ ] Codegen (eproto => proto)
+  - [ ] Workspace support

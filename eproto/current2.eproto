@@ -3,5 +3,5 @@ package current.sub_asd;
 string enum Fruit {
   "Apple",
   "Banana",
-  "Coconut",
+  "Coconut"
 }
