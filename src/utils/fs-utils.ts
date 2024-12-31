@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { inspect } from "util";
-import { Logger } from "./logger";
+import { Logger } from "../logger";
 
 export function prettyWriteJsonFile(
   logger: Logger,
@@ -36,7 +36,9 @@ export function writeSourceFile(file: string, source: string) {
 }
 
 export function swapDirectory(from: string, to: string, file: string) {
-  return path.join(to, path.relative(from, file));
+  return to === "."
+    ? `./${path.relative(from, file)}`
+    : path.join(to, path.relative(from, file));
 }
 
 export function swapExtension(file: string, ext: string) {

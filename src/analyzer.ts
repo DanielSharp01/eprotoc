@@ -5,163 +5,321 @@ import {
   MessageNode,
   parse,
   ServiceNode,
+  StringEnumNode,
   TypeNode,
 } from "./parser";
-import { StringToken, Token, tokenize } from "./tokenizer";
+import { NumberToken, StringToken, Token } from "./tokenizer";
 import { DiagnosticCollection } from "./diagnostic";
-import { promisify } from "util";
 
 export const BUILTIN_PACKAGE = Symbol("BUILTIN_PACKAGE");
 export const UNKNOWN_PACKAGE = Symbol("UNKNOWN_PACKAGE");
 
-export type UserPackageIdentifier = string | typeof UNKNOWN_PACKAGE;
-export type PackageIdentifier = UserPackageIdentifier | typeof BUILTIN_PACKAGE;
+export type UserPackageId = string | typeof UNKNOWN_PACKAGE;
+export type PackageId = UserPackageId | typeof BUILTIN_PACKAGE;
 
-export type Definition = EnumDefinition | MessageDefinition | ServiceDefinition;
+export type Definition =
+  | EnumDefinition
+  | StringEnumDefinition
+  | MessageDefinition
+  | ServiceDefinition;
 
-export interface TypeDefinition {
-  kind: "message" | "enum" | "builtin";
-  package: PackageIdentifier;
+export interface BaseDefinition<TNode extends ASTNode> {
+  packageId: PackageId;
+  astNode: TNode & { file: string };
   name: string;
-  args: string[];
+}
+
+export type BuiltinType = RealType & {
+  kind: "builtin";
+  packageId: typeof BUILTIN_PACKAGE;
+};
+
+export type RealBuiltinType = Omit<BuiltinType, "args" | "restArgs"> & {
+  args: DeepRealType[];
+  restArgs: boolean;
+};
+
+interface RealType {
+  typeKind: "real";
+  packageId: PackageId;
+  name: string;
+  args: Type[];
   restArgs: boolean;
 }
 
-export type Type = RealType | GenericType;
-
-export interface RealType {
-  kind: "real";
-  definition: TypeDefinition;
-  args: Type[];
-}
-
-export interface DeepRealType {
-  kind: "real";
-  definition: TypeDefinition;
-  args: DeepRealType[];
-}
-
 export interface GenericType {
-  kind: "generic";
+  typeKind: "generic";
   name: string;
 }
 
-export interface EnumDefinition {
-  kind: "enum";
-  typeDefinition: TypeDefinition;
-  valueType: "string" | "number" | "unknown";
-  fields: { name: string; value: string | number }[];
-}
+export type DeepRealType =
+  | RealMessageDefinition
+  | EnumDefinition
+  | StringEnumDefinition
+  | RealBuiltinType;
 
-export interface MessageDefinition {
-  kind: "message";
-  typeDefinition: TypeDefinition;
-  fields: { optional: boolean; type: Type; name: string; ordinal: number }[];
-  genericInstances: DeepRealType[][];
-}
+export type Type =
+  | BuiltinType
+  | EnumDefinition
+  | StringEnumDefinition
+  | MessageDefinition
+  | GenericType;
 
-export interface RealMessageDefinition {
-  kind: "message";
-  typeDefinition: TypeDefinition;
-  fields: {
-    optional: boolean;
-    type: DeepRealType;
-    name: string;
-    ordinal: number;
-  }[];
+export type GenericTypeInstance = DeepRealType[];
+
+export type EnumDefinition = BaseDefinition<EnumNode> &
+  Omit<RealType, "args" | "restArgs"> & {
+    kind: "enum";
+    fields: { name: string; value: number }[];
+    args: [];
+    restArgs: false;
+  };
+
+export type StringEnumDefinition = BaseDefinition<StringEnumNode> &
+  Omit<RealType, "args" | "restArgs"> & {
+    kind: "string-enum";
+    fields: string[];
+    args: [];
+    restArgs: false;
+  };
+
+export type MessageDefinition = BaseDefinition<MessageNode> &
+  Omit<RealType, "args" | "restArgs"> & {
+    kind: "message";
+    fields: { optional: boolean; type: Type; name: string; ordinal: number }[];
+    args: GenericType[];
+    restArgs: false;
+    // TODO: This has to be unique (so kind of a Set but that doesn't work with array)
+    genericInstances: GenericTypeInstance[];
+  };
+
+export type RealMessageDefinition = Omit<
+  MessageDefinition,
+  "args" | "restArgs" | "fields"
+> & {
   args: DeepRealType[];
-}
+  restArgs: false;
+  fields: (Omit<MessageDefinition["fields"][number], "type"> & {
+    type: DeepRealType;
+  })[];
+};
 
-export interface ServiceDefinition {
+export interface ServiceDefinition extends BaseDefinition<ServiceNode> {
   kind: "service";
-  name: string;
-  package: UserPackageIdentifier;
   rpcs: {
     path: string;
-    input: { stream: boolean; type: DeepRealType };
-    output: { stream: boolean; type: DeepRealType };
+    request: { stream: boolean; type: DeepRealType };
+    response: { stream: boolean; type: DeepRealType };
   }[];
 }
 
 export class SemanticAnalyzer {
-  public fileASTs = new Map<string, ASTNode[]>();
-  public packages = new Map<UserPackageIdentifier, UserPackage>();
-  public fileToPackage = new Map<string, UserPackageIdentifier>();
-  public typeRepository: TypeRepository;
+  public definitions: Definition[] = [];
+  public builtinTypes = builtinTypes();
 
-  constructor(private diagnostics: DiagnosticCollection) {
-    this.typeRepository = new TypeRepository(diagnostics);
-  }
+  constructor(private diagnostics: DiagnosticCollection) {}
 
-  async parseFile(file: string): Promise<void> {
-    const tokens = tokenize(
+  analyzeASTNodes(file: string, astNodes: ASTNode[]) {
+    const packageId = getCurrentPackageFromNodes(
       file,
-      await promisify(fs.readFile)(file, "utf-8"),
+      astNodes,
       this.diagnostics
     );
-    const ast = parse(tokens, this.diagnostics);
-    this.fileASTs.set(file, ast);
-    const previousPkg = this.fileToPackage.get(file);
-    if (previousPkg) {
-      const prevUserPackage = this.packages.get(previousPkg);
-      if (prevUserPackage) {
-        const nodes = prevUserPackage.removeASTNodes(file);
-        this.typeRepository.removeASTNodes(nodes);
-      }
-    }
-
-    const newPkg = figureOutPackage(file, ast, this.diagnostics);
-
-    const userPackage =
-      this.packages.get(newPkg) ??
-      new UserPackage(newPkg, this.typeRepository, this.diagnostics);
-
-    this.packages.set(newPkg, userPackage);
-
-    userPackage.addASTNodes(file, ast);
-    this.typeRepository.addASTNodes(newPkg, ast, this.diagnostics);
+    this.definitions = astNodes
+      .map((a) => astNodeToDefinition(file, a, packageId, this.diagnostics))
+      .filter((f) => !!f);
   }
 
   analyze() {
-    for (const pkg of this.packages.values()) {
-      pkg.analyze();
+    for (const definition of this.definitions) {
+      this.analyzeDefinition(definition);
     }
-    this.analyzeGenerics();
   }
 
-  analyzeGenerics() {
-    // TODO: This method cannot be called more than once we should clear generic instances on each definition, maybe it should not even be on the message def itself
-    for (const definition of this.getDefinitions().filter(
-      (f) => f.kind === "service"
-    )) {
-      for (const rpc of definition.rpcs) {
-        this.analyzeGenericType(rpc.input.type);
-        this.analyzeGenericType(rpc.output.type);
+  removeDefinitionsFromFile(file: string) {
+    this.definitions = this.definitions.filter((d) => d.astNode.file !== file);
+  }
+
+  analyzeDefinition(definition: Definition) {
+    switch (definition.kind) {
+      case "message":
+        return this.analyzeMessageFields(definition);
+      case "service":
+        return this.analyzeServiceRPCs(definition);
+    }
+  }
+
+  analyzeMessageFields(definition: MessageDefinition) {
+    let ordinal = 1;
+    for (const field of definition.astNode.fields) {
+      if (!field.isComplete) continue;
+
+      if (field.ordinal) {
+        const newOrdinal = (field.ordinal.value as NumberToken).value;
+        if (newOrdinal < ordinal) {
+          this.diagnostics.error({
+            item: field.ordinal.value,
+            message:
+              newOrdinal < 1
+                ? "Message field numbers must be greater than 0."
+                : "Message field numbers must be sequential.",
+          });
+        }
       }
+
+      const type = this.resolveType(definition, field.type);
+      if (type) {
+        definition.fields.push({
+          name: (field.name as StringToken).value,
+          ordinal,
+          type,
+          optional: !!field.optional,
+        });
+      }
+      ordinal++;
     }
   }
 
-  private analyzeGenericType(type: DeepRealType) {
-    if (type.definition.kind === "message") {
-      const messageDef = this.findTypeDefinition(
-        "message",
-        type.definition.package as UserPackageIdentifier,
-        type.definition.name
+  analyzeServiceRPCs(definition: ServiceDefinition) {
+    for (const rpc of definition.astNode.rpcs) {
+      const requestType = this.serviceResolveType(definition, rpc.requestType);
+      const responseType = this.serviceResolveType(
+        definition,
+        rpc.responseType
       );
-      if (!messageDef) return;
-      if (type.args.length > 0) {
-        messageDef?.genericInstances.push(type.args);
-      }
-    }
-
-    if (type.args) {
-      for (const arg of type.args) {
-        this.analyzeGenericType(arg);
+      if (requestType && responseType) {
+        definition.rpcs.push({
+          path: (rpc.name as StringToken).value,
+          request: { type: requestType, stream: !!rpc.requestStream },
+          response: { type: responseType, stream: !!rpc.responseStream },
+        });
       }
     }
   }
 
-  getASTs() {
+  resolveType(
+    definition: MessageDefinition | ServiceDefinition,
+    typeNode: TypeNode
+  ): Type | undefined {
+    if (!typeNode.isComplete) {
+      return undefined;
+    }
+
+    const typeArgs = definition.kind === "message" ? definition.args : [];
+
+    const name = typeNode.identifier.tokens as StringToken[];
+    if (
+      name.length === 1 &&
+      typeArgs.some((arg) => arg.name === name[0].value)
+    ) {
+      if (typeNode.args.length > 0 && typeNode.args[0].identifier.isComplete) {
+        this.diagnostics.error({
+          item: typeNode.args[0].identifier.tokens[0],
+          message: `Generic type "${name[0]}" must not have a generic argument`,
+        });
+        return undefined;
+      }
+
+      return {
+        typeKind: "generic",
+        name: name[0].value,
+      };
+    }
+
+    const packageId = name
+      .slice(0, -2)
+      .map((n) => n.value)
+      .join("");
+    const typeName = name[name.length - 1].value;
+
+    let resolvedType: RealType | undefined;
+    if (!packageId) {
+      resolvedType =
+        this.builtinTypes.find((t) => t.name === typeName) ??
+        this.definitions
+          .filter((d) => d.kind !== "service")
+          .find(
+            (d) => d.name === typeName && d.packageId === definition.packageId
+          );
+    } else {
+      console.log(this.definitions);
+      resolvedType =
+        this.definitions
+          .filter((d) => d.kind !== "service")
+          .find((d) => d.name === typeName && d.packageId === packageId) ??
+        typeof definition.packageId === "string"
+          ? this.definitions
+              .filter((d) => d.kind !== "service")
+              .find(
+                (d) =>
+                  d.name === typeName &&
+                  d.packageId ===
+                    `${definition.packageId as string}.${packageId}`
+              )
+          : undefined;
+    }
+    const diagnosticName = name.map((t) => t.value).join("");
+
+    if (!resolvedType) {
+      this.diagnostics.error({
+        item: typeNode.identifier.tokens[0],
+        message: `Unknown type "${diagnosticName}"`,
+      });
+      return undefined;
+    }
+
+    const returnedType = { ...resolvedType };
+    returnedType.args = [];
+
+    let idx = 0;
+    for (const generic of typeNode.args ?? []) {
+      if (!generic.identifier.isComplete) {
+        continue;
+      }
+      if (!resolvedType.restArgs && idx >= resolvedType.args.length) {
+        this.diagnostics.error({
+          item: generic.identifier.tokens[0],
+          message:
+            resolvedType.args.length === 0
+              ? `Type "${diagnosticName}" does not have generic arguments`
+              : `Type "${diagnosticName}" only has ${resolvedType.args.length} generic arguments`,
+        });
+      }
+      const verified = this.resolveType(definition, generic);
+      if (!verified) {
+        return undefined;
+      }
+      returnedType.args.push(verified);
+      idx++;
+    }
+
+    return returnedType as Type | undefined;
+  }
+
+  serviceResolveType(definition: ServiceDefinition, typeNode: TypeNode) {
+    const type = this.resolveType(definition, typeNode) as DeepRealType;
+    this.addGenericMessageInstances(type);
+    return type;
+  }
+
+  addGenericMessageInstances(type: DeepRealType) {
+    if (
+      type.kind === "message" &&
+      !type.genericInstances.some(
+        (args) =>
+          args.length === type.args.length &&
+          args.every((a, i) => a === type.args[i])
+      )
+    ) {
+      type.genericInstances.push(type.args);
+    }
+
+    for (const arg of type.args) {
+      this.addGenericMessageInstances(arg);
+    }
+  }
+
+  /*getASTs() {
     return Object.fromEntries(this.fileASTs.entries());
   }
 
@@ -189,7 +347,7 @@ export class SemanticAnalyzer {
 
   findTypeDefinition<T extends "enum" | "message">(
     kind: T,
-    pkg: UserPackageIdentifier,
+    pkg: UserPackageId,
     name: string
   ): (Definition & { kind: T }) | undefined {
     const userPackage = this.packages.get(pkg);
@@ -200,456 +358,10 @@ export class SemanticAnalyzer {
       .find((def) => def.kind === kind && def.typeDefinition.name === name) as
       | (Definition & { kind: T })
       | undefined;
-  }
+  }*/
 }
 
-export class TypeRepository {
-  public astNodeToTypeName = new Map<ASTNode, [PackageIdentifier, string]>();
-  public typeNamesToDefinitions = new Map<
-    PackageIdentifier,
-    Map<string, TypeDefinition>
-  >();
-
-  constructor(private diagnostics: DiagnosticCollection) {
-    this.typeNamesToDefinitions.set(BUILTIN_PACKAGE, builtinPackageTypes());
-  }
-
-  getDefinitionForNode(node: ASTNode): TypeDefinition | undefined {
-    const typeId = this.astNodeToTypeName.get(node);
-    if (!typeId) return undefined;
-    const [pkg, typeName] = typeId;
-    return this.typeNamesToDefinitions.get(pkg)?.get(typeName);
-  }
-
-  resolveType(
-    currentPackage: UserPackageIdentifier,
-    typeNode: TypeNode,
-    generics: string[]
-  ): Type | undefined {
-    if (!typeNode.isComplete) {
-      return undefined;
-    }
-
-    const name = typeNode.identifier.tokens as StringToken[];
-    if (name.length === 1 && generics.includes(name[0].value)) {
-      if (
-        typeNode.generics.length > 0 &&
-        typeNode.generics[0].identifier.isComplete
-      ) {
-        this.diagnostics.error({
-          item: typeNode.generics[0].identifier.tokens[0],
-          message: `Generic type "${name[0]}" must not have a generic argument`,
-        });
-        return undefined;
-      }
-
-      return {
-        kind: "generic",
-        name: name[0].value,
-      };
-    }
-
-    const packageName = name
-      .slice(0, -2)
-      .map((n) => n.value)
-      .join("");
-    const typeName = name[name.length - 1].value;
-
-    const resolvedType: Partial<RealType> = { kind: "real" };
-    if (!packageName) {
-      resolvedType.definition =
-        this.typeNamesToDefinitions.get(BUILTIN_PACKAGE)?.get(typeName) ??
-        this.typeNamesToDefinitions.get(currentPackage)?.get(typeName);
-    } else {
-      resolvedType.definition =
-        this.typeNamesToDefinitions.get(packageName)?.get(typeName) ??
-        currentPackage !== UNKNOWN_PACKAGE
-          ? this.typeNamesToDefinitions
-              .get(`${currentPackage as string}.${packageName}`)
-              ?.get(typeName)
-          : undefined;
-    }
-    const diagnosticName = name.map((t) => t.value).join("");
-
-    if (!resolvedType.definition) {
-      this.diagnostics.error({
-        item: typeNode.identifier.tokens[0],
-        message: `Unknown type "${diagnosticName}"`,
-      });
-      return undefined;
-    }
-
-    resolvedType.args = [];
-
-    let idx = 0;
-    for (const generic of typeNode.generics ?? []) {
-      if (!generic.identifier.isComplete) {
-        continue;
-      }
-      if (
-        !resolvedType.definition.restArgs &&
-        idx >= resolvedType.definition.args.length
-      ) {
-        this.diagnostics.error({
-          item: generic.identifier.tokens[0],
-          message:
-            resolvedType.definition.args.length === 0
-              ? `Type "${diagnosticName}" does not have generic arguments`
-              : `Type "${diagnosticName}" only has ${resolvedType.definition.args.length} generic arguments`,
-        });
-      }
-      const verified = this.resolveType(currentPackage, generic, generics);
-      if (!verified) {
-        return undefined;
-      }
-      resolvedType.args.push(verified);
-      idx++;
-    }
-
-    return resolvedType as RealType;
-  }
-
-  addASTNodes(
-    nodePackage: UserPackageIdentifier,
-    nodes: ASTNode[],
-    diagnostics: DiagnosticCollection
-  ) {
-    for (const node of nodes) {
-      const type = astNodeToType(nodePackage, node, diagnostics);
-      if (type) {
-        this.addTypeWithASTNode(type, node);
-      }
-    }
-  }
-
-  addTypeWithASTNode(type: TypeDefinition, node: ASTNode) {
-    const packageMap =
-      this.typeNamesToDefinitions.get(type.package) ??
-      new Map<string, TypeDefinition>();
-    packageMap.set(type.name, type);
-    this.typeNamesToDefinitions.set(type.package, packageMap);
-    this.astNodeToTypeName.set(node, [type.package, type.name]);
-  }
-
-  removeASTNodes(nodes: ASTNode[]) {
-    for (const node of nodes) {
-      const typeId = this.astNodeToTypeName.get(node);
-      if (!typeId) continue;
-      const [pkg, typeName] = typeId;
-      const map = this.typeNamesToDefinitions.get(pkg);
-      if (!map) {
-        return;
-      }
-      map.delete(typeName);
-      if (map.size === 0) {
-        this.typeNamesToDefinitions.delete(pkg);
-      }
-    }
-  }
-}
-
-export class UserPackage {
-  public astNodesPerFile = new Map<string, ASTNode[]>();
-  public definitionsPerFile = new Map<string, Definition[]>();
-
-  constructor(
-    public name: UserPackageIdentifier,
-    private typeRepository: TypeRepository,
-    private diagnostics: DiagnosticCollection
-  ) {}
-
-  addASTNodes(file: string, nodes: ASTNode[]) {
-    this.astNodesPerFile.set(file, nodes);
-  }
-
-  analyze() {
-    for (const file of this.astNodesPerFile.keys()) {
-      const definitions: Definition[] = [];
-      this.definitionsPerFile.set(file, definitions);
-      for (const node of this.astNodesPerFile.get(file)!) {
-        if (
-          node.kind === "enum-declaration" &&
-          node.name.tokenType === "identifier"
-        ) {
-          const def = this.analyzeEnumNode(node);
-          if (def) {
-            definitions.push(def);
-          }
-        } else if (
-          node.kind === "message-declaration" &&
-          node.type.isComplete
-        ) {
-          const def = this.analyzeMessageNode(node);
-          if (def) {
-            definitions.push(def);
-          }
-        } else if (
-          node.kind === "service-declaration" &&
-          node.name.tokenType === "identifier"
-        ) {
-          const def = this.analyzeServiceNode(node);
-          if (def) {
-            definitions.push(def);
-          }
-        }
-      }
-    }
-  }
-
-  private analyzeEnumNode(node: EnumNode) {
-    const typeDefinition = this.typeRepository.getDefinitionForNode(node);
-    if (!typeDefinition) {
-      this.diagnostics.logger.error(
-        "Node has no type definition and it was expected. This is a bug."
-      );
-      this.diagnostics.logger.error(node);
-      process.exit(1);
-    }
-    const enumDef: EnumDefinition = {
-      kind: "enum",
-      valueType: "unknown",
-      typeDefinition,
-      fields: [],
-    };
-    const emptyValues: Token[] = [];
-    let ordinal = 0;
-    let value: string | number = 0;
-    for (const field of node.fields ?? []) {
-      if (!field.name) continue;
-      if (field.value && field.value.value.tokenType === "string-literal") {
-        value = field.value.value.value;
-        if (enumDef.valueType === "number") {
-          this.diagnostics.error({
-            item: field.value.value,
-            message: "All fields of an enum must be either number or string",
-          });
-        } else if (enumDef.valueType === "unknown") {
-          enumDef.valueType = "string";
-          if (emptyValues.length > 0) {
-            for (const value of emptyValues) {
-              if (enumDef.valueType === "string") {
-                this.diagnostics.error({
-                  item: field.value.value,
-                  message: "A string enum must not have empty values",
-                });
-              }
-            }
-          }
-        }
-      } else if (
-        field.value &&
-        field.value.value.tokenType === "numeric-literal"
-      ) {
-        value = field.value.value.value;
-        ordinal = value;
-        if (enumDef.valueType === "string") {
-          this.diagnostics.error({
-            item: field.value.value,
-            message: "All fields of an enum must be either number or string",
-          });
-        } else if (enumDef.valueType === "unknown") {
-          enumDef.valueType = "number";
-        }
-      } else if (!field.value) {
-        if (enumDef.valueType === "string") {
-          this.diagnostics.error({
-            item: field.name,
-            message: "A string enum must not have empty values",
-          });
-        }
-        emptyValues.push(field.name);
-        value = ordinal;
-      }
-      enumDef.fields.push({
-        name: (field.name as StringToken).value,
-        value: value,
-      });
-      ordinal++;
-    }
-    if (enumDef.valueType === "unknown") {
-      enumDef.valueType = "number";
-    }
-    return enumDef;
-  }
-
-  private analyzeMessageNode(node: MessageNode) {
-    if (!node.type.isComplete) {
-      return undefined;
-    }
-
-    const typeDefinition = this.typeRepository.getDefinitionForNode(node);
-    if (!typeDefinition) {
-      this.diagnostics.logger.error(
-        "Node has no type definition and it was expected. This is a bug."
-      );
-      this.diagnostics.logger.error(node);
-      process.exit(1);
-    }
-
-    const messageDef: MessageDefinition = {
-      kind: "message",
-      fields: [],
-      typeDefinition,
-      genericInstances: [],
-    };
-    let ordinal = 1;
-    for (const field of node.fields ?? []) {
-      if (field.ordinal) {
-        const newOrdinal = Number(field.ordinal.value);
-        if (ordinal >= newOrdinal) {
-          this.diagnostics.error({
-            item: field.ordinal.value,
-            message:
-              newOrdinal < 1
-                ? "Message field numbers must be greater than 0."
-                : "Message field numbers must be sequential.",
-          });
-        }
-        ordinal = newOrdinal;
-      }
-
-      ordinal++;
-      if (field.name.tokenType !== "identifier") continue;
-      if (!field.type.identifier.isComplete) {
-        continue;
-      }
-
-      const type = this.typeRepository.resolveType(
-        this.name,
-        field.type,
-        typeDefinition.args
-      );
-
-      if (!type) {
-        continue;
-      }
-
-      this.ensureNoVoid(type, field.type, "field");
-
-      messageDef.fields.push({
-        name: field.name.value,
-        optional: !!field.optional,
-        ordinal: ordinal - 1,
-        type,
-      });
-    }
-    return messageDef;
-  }
-
-  private analyzeServiceNode(node: ServiceNode) {
-    if (node.name.tokenType !== "identifier") {
-      return undefined;
-    }
-    const serviceDef: ServiceDefinition = {
-      kind: "service",
-      name: node.name.value,
-      package: this.name,
-      rpcs: [],
-    };
-
-    for (const rpc of node.rpcs ?? []) {
-      if (
-        rpc.name.tokenType !== "identifier" ||
-        !rpc.inputType.isComplete ||
-        !rpc.outputType.isComplete
-      )
-        continue;
-      const inputType = this.typeRepository.resolveType(
-        this.name,
-        rpc.inputType,
-        []
-      );
-      const outputType = this.typeRepository.resolveType(
-        this.name,
-        rpc.outputType,
-        []
-      );
-
-      if (inputType) {
-        this.ensureNoVoidGenerics(inputType, rpc.inputType);
-      }
-
-      if (outputType) {
-        this.ensureNoVoidGenerics(outputType, rpc.inputType);
-      }
-
-      if (!inputType || !outputType) continue;
-
-      serviceDef.rpcs.push({
-        path: rpc.name.value,
-        input: { stream: !!rpc.inputStream, type: inputType as DeepRealType },
-        output: {
-          stream: !!rpc.outputStream,
-          type: outputType as DeepRealType,
-        },
-      });
-    }
-    return serviceDef;
-  }
-
-  removeASTNodes(file: string) {
-    const nodes = this.astNodesPerFile.get(file);
-    this.astNodesPerFile.delete(file);
-    return nodes ?? [];
-  }
-
-  ensureNoVoid(type: Type, typeNode: TypeNode, reason: "field" | "generics") {
-    if (type.kind === "real" && type.definition.name === "void") {
-      this.diagnostics.error({
-        item: typeNode.identifier.tokens[0],
-        message:
-          reason === "field"
-            ? 'Fields must not have the type "void"'
-            : 'Generic arguments must not be "void"',
-      });
-    }
-
-    this.ensureNoVoidGenerics(type, typeNode);
-  }
-
-  ensureNoVoidGenerics(type: Type, typeNode: TypeNode) {
-    if (type.kind !== "real") return;
-
-    let idx = 0;
-    for (const generic of type.args) {
-      this.ensureNoVoid(generic, typeNode.generics[idx], "generics");
-      idx++;
-    }
-  }
-}
-
-function realizeGenerics(
-  type: Type,
-  realTypeMap: Record<string, DeepRealType>
-): DeepRealType {
-  if (type.kind === "generic") {
-    return realTypeMap[type.name];
-  }
-
-  return {
-    ...type,
-    args: type.args.map((a) => realizeGenerics(a, realTypeMap)),
-  };
-}
-
-export function getRealMessageDefinition(
-  messageDef: MessageDefinition,
-  types: DeepRealType[]
-): RealMessageDefinition {
-  const realTypeMap = Object.fromEntries(
-    messageDef.typeDefinition.args.map((a, i) => [a, types[i]])
-  );
-  return {
-    ...messageDef,
-    fields: messageDef.fields.map((f) => ({
-      ...f,
-      type: realizeGenerics(f.type, realTypeMap),
-    })),
-    args: types,
-  };
-}
-
-function figureOutPackage(
+function getCurrentPackageFromNodes(
   file: string,
   ast: ASTNode[],
   diagnostics: DiagnosticCollection
@@ -685,64 +397,160 @@ function figureOutPackage(
     .join("");
 }
 
-function astNodeToType(
-  nodePackage: UserPackageIdentifier,
+function astNodeToDefinition(
+  file: string,
   node: ASTNode,
+  packageId: UserPackageId,
   diagnostics: DiagnosticCollection
-): TypeDefinition | undefined {
+) {
+  function enumDefinition(node: EnumNode) {
+    const def: EnumDefinition = {
+      kind: "enum",
+      typeKind: "real",
+      name: (node.name as StringToken).value,
+      astNode: { file, ...node },
+      packageId,
+      args: [],
+      restArgs: false,
+      fields: [],
+    };
+
+    let value = 0;
+    for (const field of node.fields) {
+      if (!field.isComplete) continue;
+
+      if (field.value) {
+        value = (field.value.value as NumberToken).value;
+      }
+
+      def.fields.push({ name: (field.name as StringToken).value, value });
+      value++;
+    }
+
+    return def;
+  }
+
+  function stringEnumDefinition(node: StringEnumNode) {
+    const def: StringEnumDefinition = {
+      kind: "string-enum",
+      typeKind: "real",
+      name: (node.name as StringToken).value,
+      astNode: { file, ...node },
+      packageId,
+      args: [],
+      restArgs: false,
+      fields: node.fields.map((field) => (field as StringToken).value),
+    };
+
+    return def;
+  }
+
+  function messageDefinition(node: MessageNode) {
+    const def: MessageDefinition = {
+      kind: "message",
+      typeKind: "real",
+      name: (node.type.identifier.tokens[0] as StringToken).value,
+      astNode: { file, ...node },
+      packageId,
+      args: [],
+      restArgs: false,
+      fields: [],
+      genericInstances: [],
+    };
+
+    for (const arg of node.type.args) {
+      if (arg.args.length > 0) {
+        diagnostics.error({
+          item: arg.args[0].identifier.tokens[0],
+          message:
+            "Generic arguments must be simple indentifiers and must not themselves be generic.",
+        });
+        return undefined;
+      }
+      if (arg.identifier.tokens.length > 1) {
+        diagnostics.error({
+          item: arg.args[0].identifier.tokens[0],
+          message:
+            "Generic arguments must be simple indentifiers and must not have package prefixes.",
+        });
+        return undefined;
+      }
+      def.args.push({
+        typeKind: "generic",
+        name: (arg.identifier.tokens[0] as StringToken).value,
+      });
+    }
+
+    return def;
+  }
+
+  function serviceDefinition(node: ServiceNode) {
+    const def: ServiceDefinition = {
+      kind: "service",
+      name: (node.name as StringToken).value,
+      astNode: { file, ...node },
+      packageId,
+      rpcs: [],
+    };
+
+    return def;
+  }
+
   if (
     node.kind === "enum-declaration" &&
     node.name.tokenType === "identifier"
   ) {
-    return {
-      kind: "enum",
-      name: node.name.value,
-      package: nodePackage,
-      args: [],
-      restArgs: false,
-    };
+    return enumDefinition(node);
   } else if (
-    node.kind === "message-declaration" &&
-    node.type.isComplete &&
-    node.type.generics.every((g) => g.isComplete)
+    node.kind === "string-enum-declaration" &&
+    node.name.tokenType === "identifier"
   ) {
-    for (const generic of node.type.generics) {
-      if (generic.generics.length > 0) {
-        diagnostics.error({
-          item: generic.generics[0].identifier.tokens[0],
-          message:
-            "Generic arguments must be simple indentifiers and must not themselves be generic",
-        });
-        return undefined;
-      }
-      if (generic.identifier.tokens.length > 1) {
-        diagnostics.error({
-          item: generic.generics[0].identifier.tokens[0],
-          message:
-            "Generic arguments must be simple indentifiers and must not have package prefixes",
-        });
-        return undefined;
-      }
-    }
-
-    return {
-      kind: "message",
-      name: (node.type.identifier.tokens as StringToken[])
-        .map((t) => t.value)
-        .join(""),
-      package: nodePackage,
-      args: node.type.generics.map(
-        (g) => (g.identifier.tokens[0] as StringToken).value
-      ),
-      restArgs: false,
-    };
+    return stringEnumDefinition(node);
+  } else if (node.kind === "message-declaration" && node.type.isComplete) {
+    return messageDefinition(node);
+  } else if (
+    node.kind === "service-declaration" &&
+    node.name.tokenType === "identifier"
+  ) {
+    return serviceDefinition(node);
   }
 
   return undefined;
 }
 
-function builtinPackageTypes() {
-  const builtinPackageTypes = new Map<string, TypeDefinition>();
+export function realizeMessageDefinition(
+  definition: MessageDefinition,
+  args: DeepRealType[]
+): RealMessageDefinition {
+  const genericsMap = Object.fromEntries(
+    definition.args.map((a, i) => [a.name, args[i]])
+  );
+  return {
+    ...definition,
+    fields: definition.fields.map((f) => ({
+      ...f,
+      type: realizeType(f.type, genericsMap),
+    })),
+    args,
+  };
+}
+
+function realizeType(
+  type: Type,
+  genericsMap: Record<string, DeepRealType>
+): DeepRealType {
+  if (type.typeKind === "generic") {
+    return genericsMap[type.name];
+  }
+
+  return {
+    ...type,
+    args: type.args.map((a) => realizeType(a, genericsMap)),
+  } as DeepRealType;
+}
+
+function builtinTypes() {
+  const ret: BuiltinType[] = [];
 
   for (const builtin of [
     "void",
@@ -763,35 +571,39 @@ function builtinPackageTypes() {
     "bytes",
     "Date",
   ]) {
-    builtinPackageTypes.set(builtin, {
+    ret.push({
       kind: "builtin",
-      package: BUILTIN_PACKAGE,
+      typeKind: "real",
+      packageId: BUILTIN_PACKAGE,
       name: builtin,
       args: [],
       restArgs: false,
     });
   }
-  builtinPackageTypes.set("Array", {
+  ret.push({
     kind: "builtin",
-    package: BUILTIN_PACKAGE,
+    typeKind: "real",
+    packageId: BUILTIN_PACKAGE,
     name: "Array",
-    args: ["T"],
+    args: [{ typeKind: "generic", name: "T" }],
     restArgs: false,
   });
-  builtinPackageTypes.set("Nullable", {
+  ret.push({
     kind: "builtin",
-    package: BUILTIN_PACKAGE,
+    typeKind: "real",
+    packageId: BUILTIN_PACKAGE,
     name: "Nullable",
-    args: ["T"],
+    args: [{ typeKind: "generic", name: "T" }],
     restArgs: false,
   });
-  builtinPackageTypes.set("OneOf", {
+  ret.push({
     kind: "builtin",
-    package: BUILTIN_PACKAGE,
+    typeKind: "real",
+    packageId: BUILTIN_PACKAGE,
     name: "OneOf",
     args: [],
     restArgs: true,
   });
 
-  return builtinPackageTypes;
+  return ret;
 }

@@ -1,5 +1,5 @@
 import { afterItem, DiagnosticCollection } from "./diagnostic";
-import { Token } from "./tokenizer";
+import { NumberToken, StringToken, Token } from "./tokenizer";
 
 class Parser {
   private index: number = 0;
@@ -28,6 +28,11 @@ class Parser {
       return this.parseMessage();
     } else if (current.tokenType === "keyword" && current.value === "enum") {
       return this.parseEnum();
+    } else if (
+      current.tokenType === "identifier" &&
+      current.value === "string"
+    ) {
+      return this.parseStringEnum();
     } else if (current.tokenType === "keyword" && current.value === "service") {
       return this.parseService();
     } else if (current.tokenType === "keyword" && current.value === "package") {
@@ -42,7 +47,7 @@ class Parser {
     return undefined;
   }
 
-  expect<T extends "keyword" | "symbol">(
+  expect<T extends "keyword" | "symbol" | "identifier">(
     tokenType: T,
     tokenValue: string
   ): Token | undefined {
@@ -71,7 +76,7 @@ class Parser {
     return undefined;
   }
 
-  expectNumericLiteral(): Token | undefined {
+  expectNumericLiteral(): NumberToken | undefined {
     const current = this.current();
     if (current.tokenType === "numeric-literal") {
       this.step();
@@ -84,18 +89,15 @@ class Parser {
     return undefined;
   }
 
-  expectLiteral(): Token | undefined {
+  expectStringLiteral(): StringToken | undefined {
     const current = this.current();
-    if (
-      current.tokenType === "string-literal" ||
-      current.tokenType === "numeric-literal"
-    ) {
+    if (current.tokenType === "string-literal") {
       this.step();
       return current;
     }
     this.diagnostics.error({
       item: afterItem(current),
-      message: `Expected string or number"`,
+      message: `Expected string"`,
     });
     return undefined;
   }
@@ -163,6 +165,37 @@ class Parser {
     return enumNode(node);
   }
 
+  parseStringEnum(): StringEnumNode {
+    const node: Partial<StringEnumNode> = {};
+    node.stringKeyword = this.expect("identifier", "string");
+    node.enumKeyword = this.expect("keyword", "enum");
+    node.name = this.expectIdentifier();
+    node.fields = [];
+    if (!node.name) {
+      return stringEnumNode(node);
+    }
+    if (!this.expect("symbol", "{")) {
+      return stringEnumNode(node);
+    }
+    while (!this.currentIs("symbol", "}")) {
+      const tokenBefore = this.index;
+      const literal = this.expectStringLiteral();
+      if (literal) {
+        node.fields.push(literal as StringToken);
+      } else if (!this.currentIs("symbol", ",")) {
+        this.step();
+      }
+
+      // This is to skip the last , and allow } instead
+      if (this.currentIs("symbol", "}")) break;
+
+      this.expect("symbol", ",");
+    }
+
+    this.expect("symbol", "}");
+    return stringEnumNode(node);
+  }
+
   parseEnumField(): EnumFieldNode {
     const node: Partial<EnumFieldNode> = {};
     node.name = this.expectIdentifier();
@@ -174,21 +207,25 @@ class Parser {
       const value: Partial<EnumFieldNode["value"]> = {};
       value.equals = this.current();
       this.step();
-      value.value = this.expectLiteral();
+      value.value = this.expectNumericLiteral();
       node.value = value as EnumFieldNode["value"];
       if (!value.value) {
         return enumFieldNode(node);
       }
     }
 
-    this.expect("symbol", ";");
+    if (this.currentIs("symbol", "}")) {
+      return enumFieldNode(node);
+    }
+
+    this.expect("symbol", ",");
     return enumFieldNode(node);
   }
 
   parseType(): TypeNode {
     const node: Partial<TypeNode> = {};
     node.identifier = this.parseComplexIdentifier();
-    node.generics = [];
+    node.args = [];
     if (!node.identifier.isComplete) {
       return typeNode(node);
     }
@@ -199,7 +236,7 @@ class Parser {
 
     do {
       this.step();
-      node.generics.push(this.parseType());
+      node.args.push(this.parseType());
     } while (this.currentIs("symbol", ","));
 
     this.expect("symbol", ">");
@@ -248,7 +285,7 @@ class Parser {
       const ordinal: Partial<EnumFieldNode["value"]> = {};
       ordinal.equals = this.current();
       this.step();
-      ordinal.value = this.expectLiteral();
+      ordinal.value = this.expectNumericLiteral();
       if (!ordinal.value) {
         node.ordinal = ordinal as MessageFieldNode["ordinal"];
         return messageFieldNode(node);
@@ -299,11 +336,11 @@ class Parser {
       return rpcNode(node);
     }
     if (this.currentIs("keyword", "stream")) {
-      node.inputStream = this.current();
+      node.requestStream = this.current();
       this.step();
     }
-    node.inputType = this.parseType();
-    if (!node.inputType.isComplete) {
+    node.requestType = this.parseType();
+    if (!node.requestType.isComplete) {
       return rpcNode(node);
     }
     if (!this.expect("symbol", ")")) {
@@ -317,11 +354,11 @@ class Parser {
       return rpcNode(node);
     }
     if (this.currentIs("keyword", "stream")) {
-      node.outputStream = this.current();
+      node.responseStream = this.current();
       this.step();
     }
-    node.outputType = this.parseType();
-    if (!node.outputType.isComplete) {
+    node.responseType = this.parseType();
+    if (!node.responseType.isComplete) {
       return rpcNode(node);
     }
     if (!this.expect("symbol", ")")) {
@@ -363,6 +400,7 @@ export type ASTNode =
   | MessageNode
   | ServiceNode
   | EnumNode
+  | StringEnumNode
   | PackageNode
   | EOFNode;
 
@@ -451,24 +489,24 @@ export function serviceNode(node: Partial<ServiceNode>) {
 export interface RPCNode {
   rpcKeyword: Token;
   name: Token;
-  inputType: TypeNode;
-  inputStream?: Token;
+  requestType: TypeNode;
+  requestStream?: Token;
   returnsKeyword: Token;
-  outputType: TypeNode;
-  outputStream?: Token;
+  responseType: TypeNode;
+  responseStream?: Token;
   isComplete: boolean;
 }
 
 export function rpcNode(node: Partial<RPCNode>) {
   node.name = node.name ?? ERROR_TOKEN;
-  node.inputType = node.inputType ?? typeNode({});
-  node.outputType = node.outputType ?? typeNode({});
+  node.requestType = node.requestType ?? typeNode({});
+  node.responseType = node.responseType ?? typeNode({});
   node.returnsKeyword = node.returnsKeyword ?? ERROR_TOKEN;
   if (node.isComplete !== false) {
     node.isComplete =
       node.name!.tokenType !== "unknown" &&
-      node.inputType!.isComplete &&
-      node.outputType!.isComplete;
+      node.requestType!.isComplete &&
+      node.responseType!.isComplete;
   }
   return node as RPCNode;
 }
@@ -514,19 +552,38 @@ export function enumFieldNode(node: Partial<EnumFieldNode>) {
   return node as EnumFieldNode;
 }
 
+export interface StringEnumNode {
+  kind: "string-enum-declaration";
+  stringKeyword: Token;
+  enumKeyword: Token;
+  name: Token;
+  fields: Token[];
+  isComplete: boolean;
+}
+
+export function stringEnumNode(node: Partial<StringEnumNode>) {
+  node.kind = "string-enum-declaration";
+  node.enumKeyword = node.enumKeyword ?? ERROR_TOKEN;
+  node.fields = node.fields ?? [];
+  if (node.isComplete !== false) {
+    node.isComplete = node.name && node.name.tokenType !== "unknown";
+  }
+  return node as StringEnumNode;
+}
+
 export interface TypeNode {
   identifier: IdentifierNode;
-  generics: TypeNode[];
+  args: TypeNode[];
   isComplete: boolean;
 }
 
 export function typeNode(node: Partial<TypeNode>) {
   node.identifier = node.identifier ?? identifierNode({});
-  node.generics = node.generics ?? [];
+  node.args = node.args ?? [];
   if (node.isComplete !== false) {
     node.isComplete =
       node.identifier?.isComplete &&
-      (node.generics.length === 0 || node.generics?.every((g) => g.isComplete));
+      (node.args.length === 0 || node.args?.every((g) => g.isComplete));
   }
   return node as TypeNode;
 }

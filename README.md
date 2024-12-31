@@ -51,7 +51,6 @@ Native still wouldn't be one to one compatbile from the parsing perspective. I j
   - [x] Analyze RPC input and output types
   - [x] Get definitions for codegen
   - [ ] Handle duplicate symbols
-  - [ ] Handle duplicate symbols across packages (how should this affect codegen)
 - [ ] VSCode extension
   - [ ] TextMate grammar for syntax higlighting
   - [ ] Language server integration
@@ -67,7 +66,7 @@ Native still wouldn't be one to one compatbile from the parsing perspective. I j
   - [x] Generate decoder
   - [x] Generate NiceGRPC service definition
   - [x] Non builtin generics support
+  - [x] Multi file importing
   - [ ] One of support (union types)
-  - [ ] Multi file importing
   - [ ] "Native" codegen
 - [ ] Codegen (eproto => proto)

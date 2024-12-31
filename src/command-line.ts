@@ -1,5 +1,5 @@
 import path from "path";
-import { collectFilesWithExtension } from "./fs-utils";
+import { collectFilesWithExtension } from "./utils/fs-utils";
 
 const GEN_OPTS = ["native", "evolved", "skip"] as const;
 

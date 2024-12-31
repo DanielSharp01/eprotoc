@@ -17,10 +17,14 @@ export function afterItem(item: DocumentItem) {
 export class DiagnosticCollection {
   public items: Diagnostic[] = [];
 
-  constructor(public logger: Logger) {}
+  constructor(public logger: Logger, private trace: boolean) {}
 
-  public error(item: Omit<Diagnostic, "severity">) {
-    this.items.push({ severity: "error", ...item });
+  public error(diagnostic: Omit<Diagnostic, "severity">) {
+    if (this.trace) {
+      console.trace(formatDiagnostic({ severity: "error", ...diagnostic }));
+    }
+
+    this.items.push({ severity: "error", ...diagnostic });
   }
 
   public removeFileDiagnostics(file: string) {
@@ -28,12 +32,16 @@ export class DiagnosticCollection {
   }
 
   public print() {
+    if (this.trace) return;
+
     for (const item of this.items) {
-      this.logger.error(
-        `${item.item.file}:${item.item.range.start.line + 1}:${
-          item.item.range.start.character + 1
-        } - ${item.severity}: ${item.message}`
-      );
+      this.logger.error(formatDiagnostic(item));
     }
   }
+}
+
+function formatDiagnostic(diagnostic: Diagnostic): string {
+  return `${diagnostic.item.file}:${diagnostic.item.range.start.line + 1}:${
+    diagnostic.item.range.start.character + 1
+  } - ${diagnostic.severity}: ${diagnostic.message}`;
 }
