@@ -1,0 +1,79 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "EProto",
+	"patterns": [
+		{
+			"include": "#keywords"
+		},
+		{
+			"include": "#strings"
+		},
+		{
+			"include": "#numbers"
+		},
+		{
+			"include": "#comments"
+		}
+	],
+	"repository": {
+		"keywords": {
+			"patterns": [{
+				"name": "keyword.control.eproto",
+				"match": "\\b(package|enum|message|service|rpc|stream|returns|optional|string)\\b"
+			}]
+		},
+		"strings": {
+			"name": "string.quoted.double.eproto",
+			"begin": "\"",
+			"end": "\"",
+			"patterns": [
+				{
+					"name": "constant.character.escape.eproto",
+					"match": "\\\\."
+				}
+			]
+		},
+		"numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.integer.example",
+          "match": "\\b\\d+\\b"
+        }
+			]
+		},
+		"comments": {
+			"patterns": [
+        {
+          "name": "comment.line.double-slash.eproto",
+          "match": "//.*"
+        },
+        {
+          "name": "comment.block.eproto",
+          "begin": "/\\*",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.begin.eproto"
+            }
+          },
+          "end": "\\*/",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.end.eproto"
+            }
+          },
+          "patterns": [
+            {
+              "match": "\\bTODO\\b",
+              "name": "comment.keyword.todo.eproto"
+            },
+            {
+              "match": "\\bFIXME\\b",
+              "name": "comment.keyword.fixme.eproto"
+            }
+          ]
+        }
+      ]
+		}
+	},
+	"scopeName": "source.eproto"
+}
