@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "ts-node src/index.ts -- -o ./output -d ./def.json -a ./ast.json ./eproto",
     "dev:lsp": "ts-node src/lsp.ts -- --node-ipc",
-    "build": "tsc && npm link"
+    "build": "tsc && npm link",
+    "build:lsp": "tsc && rm -r ./extensions/vscode-eproto/dist/lsp && cp -r ./dist ./extensions/vscode-eproto/dist/lsp"
   },
   "author": "",
   "license": "ISC",

@@ -14,15 +14,27 @@ import {
   SemanticTokenTypes,
   SemanticTokensRequest,
   SemanticTokensDeltaParams,
+  DefinitionRequest,
+  DefinitionParams,
+  LocationLink,
+  Location,
 } from "vscode-languageserver/node";
 
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { Diagnostic, DiagnosticCollection } from "./diagnostic";
 import { parse } from "./parser";
-import { Token, tokenize } from "./tokenizer";
+import {
+  DocumentItem,
+  joinTokens,
+  Range,
+  StringToken,
+  Token,
+  tokenize,
+} from "./tokenizer";
 import {
   Definition,
   EnumDefinition,
+  GenericType,
   MessageDefinition,
   PackageDefinition,
   SemanticAnalyzer,
@@ -83,6 +95,7 @@ connection.onInitialize((params: InitializeParams) => {
         },
         full: true,
       },
+      definitionProvider: true,
     },
   };
   if (hasWorkspaceFolderCapability) {
@@ -134,6 +147,116 @@ connection.onRequest(
     };
   }
 );
+
+type GotoToken = { targetToken: DocumentItem; originToken: DocumentItem };
+
+connection.onDefinition((request) => {
+  function relevantMessageTokens(definition: MessageDefinition): GotoToken[] {
+    const tokens: GotoToken[] = [];
+    for (const field of definition.fields) {
+      tokens.push(...relevantTypeTokens(field.type, definition.args));
+    }
+    return tokens;
+  }
+
+  function relevantTypeTokens(
+    type: TypeInstance,
+    generics?: GenericType[]
+  ): GotoToken[] {
+    const tokens: GotoToken[] = [];
+    if (type.kind === "unknown") {
+      return tokens;
+    }
+
+    if (type.kind === "generic") {
+      const generic = generics?.find((g) => g.name === type.name);
+      if (generic) {
+        tokens.push({
+          targetToken: generic.token,
+          originToken: type.token,
+        });
+      }
+      return tokens;
+    }
+
+    if (type.definition.kind === "message") {
+      const targetToken =
+        type.definition.astNode.type.identifier.tokens[
+          type.definition.astNode.type.identifier.tokens.length - 1
+        ];
+      if (targetToken) {
+        tokens.push({ targetToken, originToken: type.nameToken });
+      }
+    } else if (type.definition.kind !== "builtin") {
+      tokens.push({
+        targetToken: type.definition.astNode.name,
+        originToken: type.nameToken,
+      });
+    }
+
+    if (type.packageIdTokens.length > 0) {
+      const packageDef = analyzer.definitions.find(
+        (d) => d.kind === "package" && d.packageId === type.packageId
+      ) as PackageDefinition | undefined;
+      if (packageDef) {
+        tokens.push({
+          originToken: joinTokens(type.packageIdTokens),
+          targetToken: joinTokens(packageDef.astNode.identifier.tokens),
+        });
+      }
+    }
+
+    tokens.push(...type.args.flatMap((t) => relevantTypeTokens(t, generics)));
+
+    return tokens;
+  }
+
+  function relevantServiceTokens(definition: ServiceDefinition): GotoToken[] {
+    const tokens: GotoToken[] = [];
+    for (const field of definition.rpcs) {
+      tokens.push(...relevantTypeTokens(field.request.type));
+      tokens.push(...relevantTypeTokens(field.response.type));
+    }
+    return tokens;
+  }
+
+  let tokens: GotoToken[] = [];
+  for (const definition of analyzer.definitions) {
+    switch (definition.kind) {
+      case "message":
+        tokens.push(...relevantMessageTokens(definition));
+        break;
+      case "service":
+        tokens.push(...relevantServiceTokens(definition));
+        break;
+    }
+  }
+
+  const token = tokens.find(
+    (t) =>
+      t.originToken.file === request.textDocument.uri &&
+      t.originToken.range.start.line == request.position.line &&
+      request.position.character >= t.originToken.range.start.character &&
+      request.position.character <= t.originToken.range.end.character
+  );
+
+  console.log(
+    "[DEBUG]",
+    token
+      ? ({
+          range: token.targetToken.range,
+          uri: token.targetToken.file,
+        } as Location)
+      : null
+  );
+
+  return token
+    ? ({
+        range: token.targetToken.range,
+        uri: token.targetToken.file,
+      } as Location)
+    : null;
+});
 
 function initializeWorkspace(uri: string | undefined) {
   analyzer.definitions = [];
@@ -278,7 +401,6 @@ function gatherEncodedSemanticTokens(definitions: Definition[]): number[] {
           range: f.pathToken.range,
           tokenType: SemanticTokenTypes.method as const,
         },
-        // TODO: As well
         ...forType(f.request.type),
         ...forType(f.response.type),
       ]),

@@ -12,9 +12,7 @@ import {
 let client: LanguageClient;
 
 export function activate(context: ExtensionContext) {
-  const module = context.asAbsolutePath(
-    path.join("..", "..", "dist", "lsp.js")
-  );
+  const module = context.asAbsolutePath("./dist/lsp/lsp.js");
 
   const serverOpts: ServerOptions = {
     run: { module, transport: TransportKind.ipc },

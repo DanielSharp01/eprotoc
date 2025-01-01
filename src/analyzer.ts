@@ -200,6 +200,9 @@ export class SemanticAnalyzer {
     for (const definition of this.definitions) {
       if (definition.kind === "message") {
         definition.instances = [];
+        definition.fields = [];
+      } else if (definition.kind === 'service') {
+        definition.rpcs = [];
       }
       this.analyzeDefinition(definition);
     }
@@ -517,11 +520,17 @@ export class SemanticAnalyzer {
         !type.definition.instances.some(
           (args) =>
             args.length === type.args.length &&
-            args.every((a, i) => a === type.args[i])
+            args.every(
+              (a, i) =>
+                a.kind === "real" &&
+                type.args[i].kind === "real" &&
+                a.definition.packageId === type.args[i].definition.packageId &&
+                a.definition.name === type.args[i].definition.name
+            )
         )
       ) {
         const args = type.args.map(rpcTypeToDeepRealType);
-        if (args.every(a => !!a)) {
+        if (args.every((a) => !!a)) {
           type.definition.instances.push(args);
         }
       }

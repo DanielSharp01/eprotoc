@@ -309,3 +309,13 @@ function isDigit(char: string) {
 function isWhitespace(char: string) {
   return char === "\n" || char === "\t" || char === " ";
 }
+
+export function joinTokens(tokens: Token[]) {
+  return {
+    range: {
+      start: tokens[0].range.start,
+      end: tokens[tokens.length - 1].range.end,
+    },
+    file: tokens[0].file,
+  };
+}
