@@ -51,7 +51,8 @@ Native still wouldn't be one to one compatbile from the parsing perspective. I j
 - [ ] Language Server
   - [x] Diagnostics
   - [x] Workspace support
+  - [x] Semantic token highlighting
   - [ ] Improve diagnostics with relatedInfo
-  - [ ] Semantic token highlighting
   - [ ] Goto definition
   - [ ] Find references
+  - [ ] Rename symbol

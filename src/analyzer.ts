@@ -3,6 +3,7 @@ import {
   ASTNode,
   EnumNode,
   MessageNode,
+  PackageNode,
   parse,
   ServiceNode,
   StringEnumNode,
@@ -18,99 +19,129 @@ export type UserPackageId = string | typeof UNKNOWN_PACKAGE;
 export type PackageId = UserPackageId | typeof BUILTIN_PACKAGE;
 
 export type Definition =
+  | PackageDefinition
   | EnumDefinition
   | StringEnumDefinition
   | MessageDefinition
   | ServiceDefinition;
 
 export interface BaseDefinition<
-  TNode extends EnumNode | StringEnumNode | MessageNode | ServiceNode
+  TNode extends
+    | PackageNode
+    | EnumNode
+    | StringEnumNode
+    | MessageNode
+    | ServiceNode
 > {
-  packageId: PackageId;
+  packageId: UserPackageId;
   astNode: TNode & { file: string };
   name: string;
 }
 
-export type BuiltinType = RealType & {
-  kind: "builtin";
-  packageId: typeof BUILTIN_PACKAGE;
+export type PackageDefinition = BaseDefinition<PackageNode> & {
+  kind: "package";
 };
 
-export type RealBuiltinType = Omit<BuiltinType, "args" | "restArgs"> & {
-  args: DeepRealType[];
-  restArgs: boolean;
-};
-
-interface RealType {
-  typeKind: "real";
-  packageId: PackageId;
-  name: string;
-  args: Type[];
-  restArgs: boolean;
-}
-
-export interface GenericType {
-  typeKind: "generic";
-  name: string;
-}
-
-export type DeepRealType =
-  | RealMessageDefinition
-  | EnumDefinition
-  | StringEnumDefinition
-  | RealBuiltinType;
-
-export type Type =
-  | BuiltinType
+export type TypeDefinition =
+  | BuiltinTypeDefinition
   | EnumDefinition
   | StringEnumDefinition
   | MessageDefinition
   | GenericType;
 
-export type GenericTypeInstance = DeepRealType[];
+export type BuiltinTypeDefinition = {
+  kind: "builtin";
+  packageId: typeof BUILTIN_PACKAGE;
+  name: string;
+  args: GenericType[];
+};
 
-export type EnumDefinition = BaseDefinition<EnumNode> &
-  Omit<RealType, "args" | "restArgs"> & {
-    kind: "enum";
-    fields: { name: string; value: number }[];
-    args: [];
-    restArgs: false;
-  };
+export interface GenericType {
+  kind: "generic";
+  name: string;
+  token: Token;
+}
 
-export type StringEnumDefinition = BaseDefinition<StringEnumNode> &
-  Omit<RealType, "args" | "restArgs"> & {
-    kind: "string-enum";
-    fields: string[];
-    args: [];
-    restArgs: false;
-  };
+export type EnumDefinition = BaseDefinition<EnumNode> & {
+  kind: "enum";
+  typeKind: "real";
+  fields: { name: string; nameToken: Token; value: number }[];
+  args: [];
+};
 
-export type MessageDefinition = BaseDefinition<MessageNode> &
-  Omit<RealType, "args" | "restArgs"> & {
-    kind: "message";
-    fields: { optional: boolean; type: Type; name: string; ordinal: number }[];
-    args: GenericType[];
-    restArgs: false;
-    genericInstances: GenericTypeInstance[];
-  };
+export type StringEnumDefinition = BaseDefinition<StringEnumNode> & {
+  kind: "string-enum";
+  typeKind: "real";
+  fields: string[];
+  args: [];
+};
 
-export type RealMessageDefinition = Omit<
+export type MessageDefinition = BaseDefinition<MessageNode> & {
+  kind: "message";
+  fields: {
+    optional: boolean;
+    type: TypeInstance;
+    name: string;
+    nameToken: Token;
+    ordinal: number;
+  }[];
+  args: GenericType[];
+  instances: DeepRealTypeInstance[][];
+};
+
+export type MessageDefinitionInstance = Omit<
   MessageDefinition,
-  "args" | "restArgs" | "fields"
+  "args" | "fields"
 > & {
-  args: DeepRealType[];
-  restArgs: false;
+  args: DeepRealTypeInstance[];
   fields: (Omit<MessageDefinition["fields"][number], "type"> & {
-    type: DeepRealType;
+    type: DeepRealTypeInstance;
   })[];
 };
+
+export type TypeInstance =
+  | RealTypeInstance
+  | GenericTypeInstance
+  | UnknownTypeInstance;
+
+export type KnownTypeInstance = GenericTypeInstance | (Omit<RealTypeInstance, 'args'> & {
+  args: KnownTypeInstance[]
+});
+
+export type GenericTypeInstance = GenericType;
+
+export type UnknownTypeInstance = {
+  kind: "unknown";
+};
+
+export interface RealTypeInstance {
+  kind: "real";
+  definition: Exclude<TypeDefinition, GenericType>;
+  nameToken: Token;
+  packageId: PackageId;
+  packageIdTokens: Token[];
+  args: TypeInstance[];
+}
+
+
+export type DeepRealTypeInstance =
+  | Omit<RealTypeInstance, "args"> & {
+      args: DeepRealTypeInstance[];
+    };
+
+export type RPCTypeInstance =
+  | (Omit<RealTypeInstance, "args"> & {
+      args: RPCTypeInstance[];
+    })
+  | UnknownTypeInstance;
 
 export interface ServiceDefinition extends BaseDefinition<ServiceNode> {
   kind: "service";
   rpcs: {
     path: string;
-    request: { stream: boolean; type: DeepRealType };
-    response: { stream: boolean; type: DeepRealType };
+    pathToken: Token;
+    request: { stream: boolean; type: RPCTypeInstance };
+    response: { stream: boolean; type: RPCTypeInstance };
   }[];
 }
 
@@ -121,7 +152,7 @@ export class SemanticAnalyzer {
   constructor(private diagnostics: DiagnosticCollection) {}
 
   analyzeASTNodes(file: string, astNodes: ASTNode[]) {
-    const packageId = getCurrentPackageFromNodes(
+    const packageId = this.getCurrentPackageFromNodes(
       file,
       astNodes,
       this.diagnostics
@@ -137,7 +168,8 @@ export class SemanticAnalyzer {
       { kind: ASTNode["kind"]; token: StringToken }
     >();
     for (const definition of this.definitions.filter(
-      (d) => d.packageId === packageId
+      (d): d is Exclude<Definition, PackageDefinition> =>
+        d.packageId === packageId && d.kind !== "package"
     )) {
       const idToken = getIdToken(definition.astNode);
       const redefinition = definedSymbols.get(definition.name);
@@ -167,7 +199,7 @@ export class SemanticAnalyzer {
   analyze() {
     for (const definition of this.definitions) {
       if (definition.kind === "message") {
-        definition.genericInstances = [];
+        definition.instances = [];
       }
       this.analyzeDefinition(definition);
     }
@@ -175,6 +207,62 @@ export class SemanticAnalyzer {
 
   removeDefinitionsFromFile(file: string) {
     this.definitions = this.definitions.filter((d) => d.astNode.file !== file);
+  }
+
+  getCurrentPackageFromNodes(
+    file: string,
+    ast: ASTNode[],
+    diagnostics: DiagnosticCollection
+  ) {
+    const packageDefinitions = ast.filter((p) => p.kind === "package");
+    if (packageDefinitions.length === 0) {
+      diagnostics.error(
+        {
+          file,
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 0 },
+          },
+        },
+        "local",
+        "Every file requires a package definition"
+      );
+      return UNKNOWN_PACKAGE;
+    }
+
+    if (!packageDefinitions[0].identifier.isComplete) {
+      return UNKNOWN_PACKAGE;
+    }
+
+    for (const packageDefinition of packageDefinitions.slice(1)) {
+      diagnostics.error(
+        packageDefinition.keyword,
+        "local",
+        "Multiple package definitions are not allowed."
+      );
+    }
+
+    if (packageDefinitions[0] !== ast[0]) {
+      diagnostics.error(
+        packageDefinitions[0].keyword,
+        "local",
+        "The package definition must be the first statement."
+      );
+      return UNKNOWN_PACKAGE;
+    }
+
+    const name = (packageDefinitions[0].identifier.tokens as StringToken[])
+      .map((n) => n.value)
+      .join("");
+
+    this.definitions.push({
+      kind: "package",
+      astNode: { ...packageDefinitions[0], file },
+      name,
+      packageId: name,
+    });
+
+    return name;
   }
 
   analyzeDefinition(definition: Definition) {
@@ -224,14 +312,13 @@ export class SemanticAnalyzer {
       }
 
       const type = this.resolveType(definition, field.type);
-      if (type) {
-        definition.fields.push({
-          name: (field.name as StringToken).value,
-          ordinal,
-          type,
-          optional: !!field.optional,
-        });
-      }
+      definition.fields.push({
+        name: (field.name as StringToken).value,
+        ordinal,
+        type,
+        optional: !!field.optional,
+        nameToken: field.name,
+      });
       ordinal++;
     }
   }
@@ -261,22 +348,64 @@ export class SemanticAnalyzer {
         definition,
         rpc.responseType
       );
-      if (requestType && responseType) {
-        definition.rpcs.push({
-          path: (rpc.name as StringToken).value,
-          request: { type: requestType, stream: !!rpc.requestStream },
-          response: { type: responseType, stream: !!rpc.responseStream },
-        });
-      }
+
+      definition.rpcs.push({
+        path: (rpc.name as StringToken).value,
+        pathToken: rpc.name,
+        request: { type: requestType, stream: !!rpc.requestStream },
+        response: { type: responseType, stream: !!rpc.responseStream },
+      });
     }
+  }
+
+  lookupType(
+    currentPackageId: UserPackageId,
+    packageId: string,
+    typeName: string
+  ):
+    | Omit<RealTypeInstance, "packageIdTokens" | "nameToken">
+    | UnknownTypeInstance {
+    let definition: Exclude<TypeDefinition, GenericType> | undefined;
+    if (!packageId) {
+      definition =
+        this.builtinTypes.find((t) => t.name === typeName) ??
+        this.definitions
+          .filter((d) => d.kind !== "service" && d.kind !== "package")
+          .find((d) => d.name === typeName && d.packageId === currentPackageId);
+    } else {
+      definition =
+        this.definitions
+          .filter((d) => d.kind !== "service")
+          .find((d) => d.name === typeName && d.packageId === packageId) ??
+        typeof currentPackageId === "string"
+          ? this.definitions
+              .filter((d) => d.kind !== "service" && d.kind !== "package")
+              .find(
+                (d) =>
+                  d.name === typeName &&
+                  d.packageId === `${currentPackageId as string}.${packageId}`
+              )
+          : undefined;
+    }
+
+    if (!definition) {
+      return { kind: "unknown" };
+    }
+
+    return {
+      kind: "real",
+      packageId: definition.packageId,
+      args: definition.args,
+      definition,
+    };
   }
 
   resolveType(
     definition: MessageDefinition | ServiceDefinition,
     typeNode: TypeNode
-  ): Type | undefined {
+  ): TypeInstance {
     if (!typeNode.isComplete) {
-      return undefined;
+      return { kind: "unknown" };
     }
 
     const typeArgs = definition.kind === "message" ? definition.args : [];
@@ -292,11 +421,12 @@ export class SemanticAnalyzer {
           "local",
           `Generic type "${name[0]}" must not have a generic argument`
         );
-        return undefined;
+        return { kind: "unknown" };
       }
 
       return {
-        typeKind: "generic",
+        kind: "generic",
+        token: name[0],
         name: name[0].value,
       };
     }
@@ -307,43 +437,27 @@ export class SemanticAnalyzer {
       .join("");
     const typeName = name[name.length - 1].value;
 
-    let resolvedType: RealType | undefined;
-    if (!packageId) {
-      resolvedType =
-        this.builtinTypes.find((t) => t.name === typeName) ??
-        this.definitions
-          .filter((d) => d.kind !== "service")
-          .find(
-            (d) => d.name === typeName && d.packageId === definition.packageId
-          );
-    } else {
-      resolvedType =
-        this.definitions
-          .filter((d) => d.kind !== "service")
-          .find((d) => d.name === typeName && d.packageId === packageId) ??
-        typeof definition.packageId === "string"
-          ? this.definitions
-              .filter((d) => d.kind !== "service")
-              .find(
-                (d) =>
-                  d.name === typeName &&
-                  d.packageId ===
-                    `${definition.packageId as string}.${packageId}`
-              )
-          : undefined;
-    }
+    const resolvedType = this.lookupType(
+      definition.packageId,
+      packageId,
+      typeName
+    );
     const diagnosticName = name.map((t) => t.value).join("");
 
-    if (!resolvedType) {
+    if (resolvedType.kind === "unknown") {
       this.diagnostics.error(
-        typeNode.identifier.tokens[0],
+        name[0],
         "global",
         `Unknown type "${diagnosticName}"`
       );
-      return undefined;
+      return resolvedType;
     }
 
-    const returnedType = { ...resolvedType };
+    const returnedType = {
+      ...resolvedType,
+      nameToken: name[name.length - 1],
+      packageIdTokens: name.slice(0, -1),
+    };
     returnedType.args = [];
 
     let idx = 0;
@@ -351,7 +465,7 @@ export class SemanticAnalyzer {
       if (!generic.identifier.isComplete) {
         continue;
       }
-      if (!resolvedType.restArgs && idx >= resolvedType.args.length) {
+      if (idx >= resolvedType.args.length) {
         this.diagnostics.error(
           generic.identifier.tokens[0],
           "global",
@@ -361,76 +475,62 @@ export class SemanticAnalyzer {
         );
       }
       const verified = this.resolveType(definition, generic);
-      if (!verified) {
-        return undefined;
-      }
       returnedType.args.push(verified);
       idx++;
     }
 
-    return returnedType as Type | undefined;
+    return returnedType;
   }
 
   serviceResolveType(definition: ServiceDefinition, typeNode: TypeNode) {
-    const type = this.resolveType(definition, typeNode) as DeepRealType;
+    const type = this.resolveType(definition, typeNode) as RPCTypeInstance;
+    if (type.kind === "unknown") {
+      return type;
+    }
     this.addGenericMessageInstances(type);
     return type;
   }
 
-  addGenericMessageInstances(type: DeepRealType) {
-    if (
-      type.kind === "message" &&
-      !type.genericInstances.some(
-        (args) =>
-          args.length === type.args.length &&
-          args.every((a, i) => a === type.args[i])
-      )
-    ) {
-      type.genericInstances.push(type.args);
+  addGenericMessageInstances(type: RPCTypeInstance) {
+    function rpcTypeToDeepRealType(rpcType: RPCTypeInstance): DeepRealTypeInstance | undefined {
+      if (rpcType.kind === 'unknown') {
+        return undefined;
+      }
+      
+      const args = rpcType.args.map(rpcTypeToDeepRealType);
+      if (!args.every(a => !!a)) {
+        return undefined;
+      }
+
+      return {
+        ...rpcType,
+        args,
+      }
+    }
+   
+    if (type.kind === 'unknown') {
+      return;
+    }
+
+    if (type.definition.kind === "message") {
+      if (
+        !type.definition.instances.some(
+          (args) =>
+            args.length === type.args.length &&
+            args.every((a, i) => a === type.args[i])
+        )
+      ) {
+        const args = type.args.map(rpcTypeToDeepRealType);
+        if (args.every(a => !!a)) {
+          type.definition.instances.push(args);
+        }
+      }
     }
 
     for (const arg of type.args) {
       this.addGenericMessageInstances(arg);
     }
   }
-}
-
-function getCurrentPackageFromNodes(
-  file: string,
-  ast: ASTNode[],
-  diagnostics: DiagnosticCollection
-) {
-  const packageDefinitions = ast.filter((p) => p.kind === "package");
-  if (packageDefinitions.length === 0) {
-    diagnostics.error(
-      {
-        file,
-        range: {
-          start: { line: 0, character: 0 },
-          end: { line: 0, character: 0 },
-        },
-      },
-      "local",
-      "Every file requires a package definition"
-    );
-    return UNKNOWN_PACKAGE;
-  }
-
-  if (!packageDefinitions[0].identifier.isComplete) {
-    return UNKNOWN_PACKAGE;
-  }
-
-  for (const packageDefinition of packageDefinitions.slice(1)) {
-    diagnostics.error(
-      packageDefinition.keyword,
-      "local",
-      "Multiple package definitions are not allowed."
-    );
-  }
-
-  return (packageDefinitions[0].identifier.tokens as StringToken[])
-    .map((n) => n.value)
-    .join("");
 }
 
 function astNodeToDefinition(
@@ -447,7 +547,6 @@ function astNodeToDefinition(
       astNode: { file, ...node },
       packageId,
       args: [],
-      restArgs: false,
       fields: [],
     };
 
@@ -478,7 +577,11 @@ function astNodeToDefinition(
         value = (field.value.value as NumberToken).value;
       }
 
-      def.fields.push({ name: (field.name as StringToken).value, value });
+      def.fields.push({
+        name: (field.name as StringToken).value,
+        value,
+        nameToken: field.name,
+      });
       value++;
     }
 
@@ -493,7 +596,6 @@ function astNodeToDefinition(
       astNode: { file, ...node },
       packageId,
       args: [],
-      restArgs: false,
       fields: [],
     };
 
@@ -522,14 +624,12 @@ function astNodeToDefinition(
   function messageDefinition(node: MessageNode) {
     const def: MessageDefinition = {
       kind: "message",
-      typeKind: "real",
       name: (node.type.identifier.tokens[0] as StringToken).value,
       astNode: { file, ...node },
       packageId,
       args: [],
-      restArgs: false,
       fields: [],
-      genericInstances: [],
+      instances: [],
     };
 
     for (const arg of node.type.args) {
@@ -550,8 +650,9 @@ function astNodeToDefinition(
         return undefined;
       }
       def.args.push({
-        typeKind: "generic",
+        kind: "generic",
         name: (arg.identifier.tokens[0] as StringToken).value,
+        token: arg.identifier.tokens[0],
       });
     }
 
@@ -588,37 +689,43 @@ function astNodeToDefinition(
 
 export function realizeMessageDefinition(
   definition: MessageDefinition,
-  args: DeepRealType[]
-): RealMessageDefinition {
+  args: DeepRealTypeInstance[]
+): MessageDefinitionInstance {
   const genericsMap = Object.fromEntries(
     definition.args.map((a, i) => [a.name, args[i]])
   );
+
   return {
     ...definition,
     fields: definition.fields.map((f) => ({
       ...f,
-      type: realizeType(f.type, genericsMap),
+      type: realizeType(
+        f.type as KnownTypeInstance,
+        genericsMap
+      ),
     })),
     args,
   };
 }
 
 function realizeType(
-  type: Type,
-  genericsMap: Record<string, DeepRealType>
-): DeepRealType {
-  if (type.typeKind === "generic") {
+  type: KnownTypeInstance,
+  genericsMap: Record<string, DeepRealTypeInstance>
+): DeepRealTypeInstance {
+  if (type.kind === "generic") {
     return genericsMap[type.name];
   }
 
   return {
     ...type,
-    args: type.args.map((a) => realizeType(a, genericsMap)),
-  } as DeepRealType;
+    args: type.args.map((a) =>
+      realizeType(a, genericsMap)
+    ),
+  };
 }
 
 function builtinTypes() {
-  const ret: BuiltinType[] = [];
+  const ret: BuiltinTypeDefinition[] = [];
 
   for (const builtin of [
     "void",
@@ -641,28 +748,22 @@ function builtinTypes() {
   ]) {
     ret.push({
       kind: "builtin",
-      typeKind: "real",
       packageId: BUILTIN_PACKAGE,
       name: builtin,
       args: [],
-      restArgs: false,
     });
   }
   ret.push({
     kind: "builtin",
-    typeKind: "real",
     packageId: BUILTIN_PACKAGE,
     name: "Array",
-    args: [{ typeKind: "generic", name: "T" }],
-    restArgs: false,
+    args: [{ kind: "generic", name: "T", token: undefined as any }],
   });
   ret.push({
     kind: "builtin",
-    typeKind: "real",
     packageId: BUILTIN_PACKAGE,
     name: "Nullable",
-    args: [{ typeKind: "generic", name: "T" }],
-    restArgs: false,
+    args: [{ kind: "generic", name: "T", token: undefined as any }],
   });
 
   return ret;

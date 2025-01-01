@@ -11,14 +11,38 @@ import {
   DiagnosticSeverity,
   TextDocumentChangeEvent,
   DidChangeConfigurationNotification,
+  SemanticTokenTypes,
+  SemanticTokensRequest,
+  SemanticTokensDeltaParams,
 } from "vscode-languageserver/node";
 
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { Diagnostic, DiagnosticCollection } from "./diagnostic";
 import { parse } from "./parser";
-import { tokenize } from "./tokenizer";
-import { SemanticAnalyzer } from "./analyzer";
+import { Token, tokenize } from "./tokenizer";
+import {
+  Definition,
+  EnumDefinition,
+  MessageDefinition,
+  PackageDefinition,
+  SemanticAnalyzer,
+  ServiceDefinition,
+  StringEnumDefinition,
+  TypeInstance,
+} from "./analyzer";
 import { collectFilesWithExtension } from "./utils/fs-utils";
+import { inspect } from "util";
+
+const tokenTypes = {
+  [SemanticTokenTypes.namespace]: 0,
+  [SemanticTokenTypes.type]: 1,
+  [SemanticTokenTypes.typeParameter]: 2,
+  [SemanticTokenTypes.enum]: 3,
+  [SemanticTokenTypes.enumMember]: 4,
+  [SemanticTokenTypes.struct]: 5,
+  [SemanticTokenTypes.property]: 6,
+  [SemanticTokenTypes.method]: 7,
+} as const;
 
 let connection = createConnection(ProposedFeatures.all);
 let documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
@@ -51,8 +75,14 @@ connection.onInitialize((params: InitializeParams) => {
 
   const result: InitializeResult = {
     capabilities: {
-      // TODO: Support incremental
       textDocumentSync: TextDocumentSyncKind.Full,
+      semanticTokensProvider: {
+        legend: {
+          tokenTypes: Object.keys(tokenTypes),
+          tokenModifiers: [],
+        },
+        full: true,
+      },
     },
   };
   if (hasWorkspaceFolderCapability) {
@@ -90,6 +120,20 @@ connection.onDidChangeWatchedFiles(({ changes }) => {
 documents.onDidChangeContent((change) => {
   documentChanged(change);
 });
+
+connection.onRequest(
+  SemanticTokensRequest.method,
+  (request: SemanticTokensDeltaParams) => {
+    const data = gatherEncodedSemanticTokens(
+      analyzer.definitions.filter(
+        (d) => d.astNode.file === request.textDocument.uri
+      )
+    );
+    return {
+      data,
+    };
+  }
+);
 
 function initializeWorkspace(uri: string | undefined) {
   analyzer.definitions = [];
@@ -130,12 +174,6 @@ function loadDocument(uri: string, content: string) {
     const fileDiagnostics = diagnostics.items
       .filter((d) => d.token.file === file)
       .map((d) => createDiagnostic(d));
-    console.log(
-      "[DEBUG]",
-      "Reporting diagnostics",
-      file,
-      fileDiagnostics.length
-    );
     connection.sendDiagnostics({
       uri: file,
       diagnostics: fileDiagnostics,
@@ -152,4 +190,170 @@ function createDiagnostic(diagnostic: Diagnostic): LspDiagnostic {
     message: diagnostic.message,
     range: diagnostic.token.range,
   };
+}
+
+type SemanticToken = {
+  range: Token["range"];
+  tokenType: keyof typeof tokenTypes;
+};
+
+function encodeSemanticToken(
+  previousToken: SemanticToken | undefined,
+  token: SemanticToken
+) {
+  const lineDelta =
+    token.range.start.line - (previousToken?.range.start.line ?? 0);
+  const characterDelta =
+    lineDelta === 0
+      ? token.range.start.character -
+        (previousToken?.range.start.character ?? 0)
+      : token.range.start.character;
+  return [
+    lineDelta,
+    characterDelta,
+    token.range.end.character - token.range.start.character,
+    tokenTypes[token.tokenType],
+    0,
+  ];
+}
+
+function gatherEncodedSemanticTokens(definitions: Definition[]): number[] {
+  function forPackage(definition: PackageDefinition): SemanticToken[] {
+    return definition.astNode.identifier.tokens.map((t) => ({
+      range: t.range,
+      tokenType: SemanticTokenTypes.namespace as const,
+    }));
+  }
+
+  function forEnum(definition: EnumDefinition): SemanticToken[] {
+    return [
+      {
+        range: definition.astNode.name.range,
+        tokenType: SemanticTokenTypes.enum,
+      },
+      ...definition.fields.map((f) => ({
+        range: f.nameToken.range,
+        tokenType: SemanticTokenTypes.enumMember as const,
+      })),
+    ];
+  }
+
+  function forStringEnum(definition: StringEnumDefinition): SemanticToken[] {
+    return [
+      {
+        range: definition.astNode.name.range,
+        tokenType: SemanticTokenTypes.enum,
+      },
+    ];
+  }
+
+  function forMessage(definition: MessageDefinition): SemanticToken[] {
+    return [
+      {
+        range: definition.astNode.type.identifier.tokens[0].range,
+        tokenType: SemanticTokenTypes.struct,
+      },
+      ...definition.args.map((t) => ({
+        range: t.token.range,
+        tokenType: SemanticTokenTypes.typeParameter as const,
+      })),
+      ...definition.fields.flatMap((f) => [
+        ...forType(f.type),
+        {
+          range: f.nameToken.range,
+          tokenType: SemanticTokenTypes.property as const,
+        },
+      ]),
+    ];
+  }
+
+  function forService(definition: ServiceDefinition): SemanticToken[] {
+    return [
+      {
+        range: definition.astNode.name.range,
+        tokenType: SemanticTokenTypes.struct,
+      },
+      ...definition.rpcs.flatMap((f) => [
+        {
+          range: f.pathToken.range,
+          tokenType: SemanticTokenTypes.method as const,
+        },
+        // TODO: As well
+        ...forType(f.request.type),
+        ...forType(f.response.type),
+      ]),
+    ];
+  }
+
+  function forType(type: TypeInstance): SemanticToken[] {
+    if (type.kind === "unknown") {
+      return [];
+    }
+
+    if (type.kind === "generic") {
+      return [
+        {
+          range: type.token.range,
+          tokenType: SemanticTokenTypes.typeParameter,
+        },
+      ];
+    }
+
+    if (type.definition.kind === "message") {
+      return [
+        ...type.packageIdTokens.map((p) => ({
+          range: p.range,
+          tokenType: SemanticTokenTypes.namespace as const,
+        })),
+        { range: type.nameToken.range, tokenType: SemanticTokenTypes.struct },
+        ...type.args.flatMap((t) => forType(t)),
+      ];
+    } else if (
+      type.definition.kind === "enum" ||
+      type.definition.kind === "string-enum"
+    ) {
+      return [
+        ...type.packageIdTokens.map((p) => ({
+          range: p.range,
+          tokenType: SemanticTokenTypes.namespace as const,
+        })),
+        { range: type.nameToken.range, tokenType: SemanticTokenTypes.enum },
+      ];
+    }
+
+    return [
+      { range: type.nameToken.range, tokenType: SemanticTokenTypes.type },
+      ...type.args.flatMap((t) => forType(t)),
+    ];
+  }
+
+  const tokens: SemanticToken[] = [];
+
+  for (const definition of definitions) {
+    switch (definition.kind) {
+      case "package":
+        tokens.push(...forPackage(definition));
+        break;
+      case "enum":
+        tokens.push(...forEnum(definition));
+        break;
+      case "string-enum":
+        tokens.push(...forStringEnum(definition));
+        break;
+      case "message":
+        tokens.push(...forMessage(definition));
+        break;
+      case "service":
+        tokens.push(...forService(definition));
+        break;
+    }
+  }
+
+  const encoded: number[] = [];
+  let previousToken: SemanticToken | undefined;
+  for (const token of tokens) {
+    encoded.push(...encodeSemanticToken(previousToken, token));
+    previousToken = token;
+  }
+  return encoded;
 }

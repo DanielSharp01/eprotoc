@@ -26,4 +26,6 @@ message Test2 {
 
 service TestService {
   rpc test(Nullable<Response<Pagination<int32>, Date>>) returns (Pagination<string>);
+  rpc test2(Nullable<Response<Pagination<int32>, Date>>) returns (Pagination<string>);
+  rpc test3(void) returns (void);
 }
