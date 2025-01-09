@@ -13,7 +13,6 @@ message Response<TPag, TItem> {
 
 message Pagination<T> {
   T current;
-  sub.Fruit a;
   optional T next;
 }
 

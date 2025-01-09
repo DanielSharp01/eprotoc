@@ -42,7 +42,7 @@ Native still wouldn't be one to one compatbile from the parsing perspective. I j
 
 ## Development
 
-- [ ] Top level messages should not require LEN
+- [x] Top level messages should not require LEN
 - [ ] "Native" codegen
 - [ ] Codegen (eproto => proto)
 - [x] VSCode extension

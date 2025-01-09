@@ -228,13 +228,10 @@ export class TSCodeGenerator {
 
     return [
       `  ${serializeKey}(writer: _m0.Writer, value: ${definition.name}${typeArgsForValue}) {`,
-      "    writer.fork();",
       ...definition.fields.map((f) => this.serializeMessageField(context, f)),
-      "    writer.ldelim();",
       "  },",
-      `  ${deserializeKey}(reader: _m0.Reader): ${definition.name}${typeArgsForValue} {`,
+      `  ${deserializeKey}(reader: _m0.Reader, end: number): ${definition.name}${typeArgsForValue} {`,
       "    let value: any = {};",
-      "    const end = reader.uint32() + reader.pos;",
       "",
       "    while (reader.pos < end) {",
       "      const tag = reader.uint32();",
@@ -325,7 +322,8 @@ export class TSCodeGenerator {
             this.serializerForType(
               context,
               definition.request.type as DeepRealTypeInstance,
-              "value"
+              "value",
+              true
             )
               .map((s) => `      ${s}`)
               .join("\n"),
@@ -345,7 +343,8 @@ export class TSCodeGenerator {
             this.deserializerForType(
               context,
               definition.request.type as DeepRealTypeInstance,
-              "value"
+              "value",
+              true
             )
               .map((s) => `      ${s}`)
               .join("\n"),
@@ -364,7 +363,8 @@ export class TSCodeGenerator {
             this.serializerForType(
               context,
               definition.response.type as DeepRealTypeInstance,
-              "value"
+              "value",
+              true
             )
               .map((s) => `      ${s}`)
               .join("\n"),
@@ -384,7 +384,8 @@ export class TSCodeGenerator {
             this.deserializerForType(
               context,
               definition.response.type as DeepRealTypeInstance,
-              "value"
+              "value",
+              true
             )
               .map((s) => `      ${s}`)
               .join("\n"),
@@ -439,7 +440,8 @@ export class TSCodeGenerator {
   private serializerForType(
     context: CodeGenContext,
     type: DeepRealTypeInstance,
-    value: string
+    value: string,
+    topLevel: boolean = false
   ): string[] {
     const idSafeVal = safeIdentifier(value);
 
@@ -486,15 +488,23 @@ export class TSCodeGenerator {
     } else if (type.definition.kind === "string-enum") {
       return [`writer.string(${value});`];
     } else if (type.definition.kind === "message") {
+      const source = [];
+      if (!topLevel) {
+        source.push("writer.fork();");
+      }
       if (type.args.length > 0) {
-        return [
+        source.push(
           `${type.definition.name}["serialize<${type.args
             .map((a) => this.generateType(context, a))
-            .join(", ")}>"](writer, ${value});`,
-        ];
+            .join(", ")}>"](writer, ${value});`
+        );
       } else {
-        return [`${type.definition.name}.serialize(writer, ${value});`];
+        source.push(`${type.definition.name}.serialize(writer, ${value});`);
       }
+      if (!topLevel) {
+        source.push("writer.ldelim();");
+      }
+      return source;
     }
 
     return [];
@@ -503,7 +513,8 @@ export class TSCodeGenerator {
   private deserializerForType(
     context: CodeGenContext,
     type: DeepRealTypeInstance,
-    value: string = "value"
+    value: string = "value",
+    topLevel: boolean = false
   ): string[] {
     const idSafeVal = safeIdentifier(value);
 
@@ -537,8 +548,9 @@ export class TSCodeGenerator {
           `  ${value} = null;`,
           `}`,
           `else {`,
-          "",
-          ...this.deserializerForType(context, type.args[0], `${value}`),
+          ...this.deserializerForType(context, type.args[0], `${value}`).map(
+            (s) => `  ${s}`
+          ),
           "}",
         ];
       } else {
@@ -552,15 +564,22 @@ export class TSCodeGenerator {
     } else if (type.definition.kind === "enum") {
       return [`${value} = reader.uint32() as ${type.definition.name};`];
     } else if (type.definition.kind === "message") {
+      const source = [];
+      if (!topLevel) {
+        source.push(`const end = reader.uint32() + reader.pos;`);
+      } else {
+        source.push(`const end = reader.len;`);
+      }
       if (type.args.length > 0) {
-        return [
+        source.push(
           `${value} = ${type.definition.name}["deserialize<${type.args
             .map((a) => this.generateType(context, a))
-            .join(", ")}>"](reader);`,
-        ];
+            .join(", ")}>"](reader, end);`
+        );
       } else {
-        return [`${type.definition.name}.deserialize(reader);`];
+        source.push(`${type.definition.name}.deserialize(reader, end);`);
       }
+      return source;
     }
 
     return [];
