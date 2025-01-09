@@ -10,7 +10,7 @@ import {
   TypeNode,
 } from "./parser";
 import { NumberToken, StringToken, Token } from "./tokenizer";
-import { atToken, DiagnosticCollection } from "./diagnostic";
+import { DiagnosticCollection, diagnosticMessages } from "./diagnostic";
 
 export const BUILTIN_PACKAGE = Symbol("BUILTIN_PACKAGE");
 export const UNKNOWN_PACKAGE = Symbol("UNKNOWN_PACKAGE");
@@ -104,9 +104,11 @@ export type TypeInstance =
   | GenericTypeInstance
   | UnknownTypeInstance;
 
-export type KnownTypeInstance = GenericTypeInstance | (Omit<RealTypeInstance, 'args'> & {
-  args: KnownTypeInstance[]
-});
+export type KnownTypeInstance =
+  | GenericTypeInstance
+  | (Omit<RealTypeInstance, "args"> & {
+      args: KnownTypeInstance[];
+    });
 
 export type GenericTypeInstance = GenericType;
 
@@ -122,7 +124,6 @@ export interface RealTypeInstance {
   packageIdTokens: Token[];
   args: TypeInstance[];
 }
-
 
 export type DeepRealTypeInstance =
   | Omit<RealTypeInstance, "args"> & {
@@ -177,15 +178,18 @@ export class SemanticAnalyzer {
         this.diagnostics.error(
           idToken,
           "global",
-          `Name "${
-            redefinition.token.value
-          }" cannot be used for ${definition.kind.replace(
-            "-",
-            " "
-          )} because it already exists as a ${redefinition.kind.replace(
-            "-",
-            " "
-          )} at ${atToken(redefinition.token)}`
+          diagnosticMessages.redefinitionAt(
+            `Name "${
+              redefinition.token.value
+            }" cannot be used for ${definition.kind.replace(
+              "-",
+              " "
+            )} because it already exists as a ${redefinition.kind.replace(
+              "-",
+              " "
+            )}`,
+            redefinition.token
+          )
         );
       } else {
         definedSymbols.set(idToken.value, {
@@ -201,7 +205,7 @@ export class SemanticAnalyzer {
       if (definition.kind === "message") {
         definition.instances = [];
         definition.fields = [];
-      } else if (definition.kind === 'service') {
+      } else if (definition.kind === "service") {
         definition.rpcs = [];
       }
       this.analyzeDefinition(definition);
@@ -290,9 +294,10 @@ export class SemanticAnalyzer {
         this.diagnostics.error(
           field.name,
           "local",
-          `Field "${redefinition.value}" in message "${
-            definition.name
-          }" already exists at ${atToken(redefinition)}`
+          diagnosticMessages.redefinitionAt(
+            `Field "${redefinition.value}" in message "${definition.name}" already exists`,
+            redefinition
+          )
         );
       } else {
         definedFields.set(
@@ -335,9 +340,10 @@ export class SemanticAnalyzer {
         this.diagnostics.error(
           rpc.name,
           "local",
-          `RPC "${redefinition.value}" already exists in service "${
-            definition.name
-          }" at ${atToken(redefinition)}`
+          diagnosticMessages.redefinitionAt(
+            `RPC "${redefinition.value}" already exists in service "${definition.name}"`,
+            redefinition
+          )
         );
       } else {
         definedRPCs.set(
@@ -495,23 +501,25 @@ export class SemanticAnalyzer {
   }
 
   addGenericMessageInstances(type: RPCTypeInstance) {
-    function rpcTypeToDeepRealType(rpcType: RPCTypeInstance): DeepRealTypeInstance | undefined {
-      if (rpcType.kind === 'unknown') {
+    function rpcTypeToDeepRealType(
+      rpcType: RPCTypeInstance
+    ): DeepRealTypeInstance | undefined {
+      if (rpcType.kind === "unknown") {
         return undefined;
       }
-      
+
       const args = rpcType.args.map(rpcTypeToDeepRealType);
-      if (!args.every(a => !!a)) {
+      if (!args.every((a) => !!a)) {
         return undefined;
       }
 
       return {
         ...rpcType,
         args,
-      }
+      };
     }
-   
-    if (type.kind === 'unknown') {
+
+    if (type.kind === "unknown") {
       return;
     }
 
@@ -571,9 +579,10 @@ function astNodeToDefinition(
         diagnostics.error(
           field.name,
           "local",
-          `Field "${redefinition.value}" in enum "${
-            def.name
-          }" already exists at ${atToken(redefinition)}`
+          diagnosticMessages.redefinitionAt(
+            `Field "${redefinition.value}" in enum "${def.name}" already exists`,
+            redefinition
+          )
         );
       } else {
         definedFields.set(
@@ -616,9 +625,10 @@ function astNodeToDefinition(
         diagnostics.error(
           field,
           "local",
-          `Field "${redefinition.value}" in string enum "${
-            def.name
-          }" already exists at ${atToken(redefinition)}`
+          diagnosticMessages.redefinitionAt(
+            `Field "${redefinition.value}" in string enum "${def.name}" already exists`,
+            redefinition
+          )
         );
       } else {
         definedFields.set((field as StringToken).value, field as StringToken);

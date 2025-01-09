@@ -23,14 +23,7 @@ import {
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { Diagnostic, DiagnosticCollection } from "./diagnostic";
 import { parse } from "./parser";
-import {
-  DocumentItem,
-  joinTokens,
-  Range,
-  StringToken,
-  Token,
-  tokenize,
-} from "./tokenizer";
+import { DocumentItem, joinTokens, Token, tokenize } from "./tokenizer";
 import {
   Definition,
   EnumDefinition,
@@ -240,16 +233,6 @@ connection.onDefinition((request) => {
       request.position.character <= t.originToken.range.end.character
   );
 
-  console.log(
-    "[DEBUG]",
-    token
-      ? ({
-          range: token.targetToken.range,
-          uri: token.targetToken.file,
-        } as Location)
-      : null
-  );
-
   return token
     ? ({
         range: token.targetToken.range,
@@ -297,6 +280,7 @@ function loadDocument(uri: string, content: string) {
     const fileDiagnostics = diagnostics.items
       .filter((d) => d.token.file === file)
       .map((d) => createDiagnostic(d));
+
     connection.sendDiagnostics({
       uri: file,
       diagnostics: fileDiagnostics,
@@ -310,7 +294,19 @@ connection.listen();
 function createDiagnostic(diagnostic: Diagnostic): LspDiagnostic {
   return {
     severity: DiagnosticSeverity.Error,
-    message: diagnostic.message,
+    message: diagnostic.message.message,
+    relatedInformation:
+      diagnostic.message.kind === "redefinition"
+        ? [
+            {
+              location: {
+                uri: diagnostic.message.at.file,
+                range: diagnostic.message.at.range,
+              },
+              message: "First defined at",
+            },
+          ]
+        : undefined,
     range: diagnostic.token.range,
   };
 }
