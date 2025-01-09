@@ -60,23 +60,12 @@ function generator(opts: ReturnType<typeof parseCommandLine>) {
     return;
   }
 
-  if (opts.codeGen === "native") {
-    // TODO: Implementation of native codegen
-    // Top level builtins are not allowed we would have to wrap them them in a one field message
-    // Optional repeated is not allowed we would have to wrap them in a one field message
-    // Nullable has to be an actual message with two fields instead of packed LEN 1 0 or LEN 1 + bytes.len 0 bytes[]
-
-    logger.error(
-      'We do not support native protobuf for now please use "evolved".'
-    );
-    process.exit(1);
-  }
-
   logger.info(`Beggining code generation using ${opts.codeGen}`);
   generator.generate(
     opts.rootDir,
     opts.outputDir,
-    semanticAnalyzer.definitions
+    semanticAnalyzer.definitions,
+    opts.codeGen === "native"
   );
   logger.info("Generation successful!");
 }

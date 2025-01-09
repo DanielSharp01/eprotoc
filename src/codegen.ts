@@ -60,6 +60,7 @@ const BUILTIN_WIRE_TYPE = {
 } as Record<string, number>;
 
 interface CodeGenContext {
+  isNative: boolean;
   currentFile: string;
   currentPackage: string;
   typeImports: Map<string, Set<string>>;
@@ -88,10 +89,16 @@ function addTypeToImports(
 export class TSCodeGenerator {
   constructor(private logger: Console) {}
 
-  generate(rootDir: string, outputDir: string, definitions: Definition[]) {
+  generate(
+    rootDir: string,
+    outputDir: string,
+    definitions: Definition[],
+    isNative: boolean
+  ) {
     for (const file of new Set(definitions.map((d) => d.astNode.file))) {
       const defs = definitions.filter((d) => d.astNode.file === file);
       const context: CodeGenContext = {
+        isNative,
         currentFile: file,
         currentPackage: defs[0].packageId as string,
         typeImports: new Map(),
@@ -235,11 +242,10 @@ export class TSCodeGenerator {
       "",
       "    while (reader.pos < end) {",
       "      const tag = reader.uint32();",
-      "      switch (tag >> 3) {",
+      "      const idx = tag >>> 3;",
       ...definition.fields.map((f) => this.deserializeMessageField(context, f)),
-      "        default:",
-      "          reader.skipType(tag & 7);",
-      "          break;",
+      "      else {",
+      "        reader.skipType(tag & 7);",
       "      }",
       "    }",
       "",
@@ -264,10 +270,19 @@ export class TSCodeGenerator {
         (field.ordinal << 3) + this.wireTypeForType(field.type)
       });`
     );
+
+    const needsSeparateMessage =
+      field.optional &&
+      typeDefinitionIsNativelyArrayLike(field.type.definition);
+
     source.push(
-      ...this.serializerForType(context, field.type, `value.${field.name}`).map(
-        (s) => `    ${optionalIndent}${s}`
-      )
+      ...this.serializerForType(
+        context,
+        field.type,
+        `value.${field.name}`,
+        true,
+        needsSeparateMessage
+      ).map((s) => `    ${optionalIndent}${s}`)
     );
     if (field.optional) {
       source.push(`    }`);
@@ -280,14 +295,21 @@ export class TSCodeGenerator {
     context: CodeGenContext,
     field: MessageDefinitionInstance["fields"][number]
   ): string {
+    const needsSeparateMessage =
+      field.optional &&
+      typeDefinitionIsNativelyArrayLike(field.type.definition);
     return [
-      `          case ${field.ordinal}:`,
+      `      ${field.ordinal > 1 ? "else " : ""}if (idx === ${
+        field.ordinal
+      }) {`,
       ...this.deserializerForType(
         context,
         field.type,
-        `value.${field.name}`
-      ).map((s) => `            ${s}`),
-      "          break;",
+        `value.${field.name}`,
+        true,
+        needsSeparateMessage
+      ).map((s) => `        ${s}`),
+      "      }",
     ].join("\n");
   }
 
@@ -323,6 +345,7 @@ export class TSCodeGenerator {
               context,
               definition.request.type as DeepRealTypeInstance,
               "value",
+              false,
               true
             )
               .map((s) => `      ${s}`)
@@ -340,10 +363,12 @@ export class TSCodeGenerator {
         ? [
             "      const reader = _m0.Reader.create(bytes);",
             "      let value: any;",
+            "      const end = reader.len;",
             this.deserializerForType(
               context,
               definition.request.type as DeepRealTypeInstance,
               "value",
+              false,
               true
             )
               .map((s) => `      ${s}`)
@@ -364,6 +389,7 @@ export class TSCodeGenerator {
               context,
               definition.response.type as DeepRealTypeInstance,
               "value",
+              false,
               true
             )
               .map((s) => `      ${s}`)
@@ -381,10 +407,12 @@ export class TSCodeGenerator {
         ? [
             "      const reader = _m0.Reader.create(bytes);",
             "      let value: any;",
+            "      const end = reader.len;",
             this.deserializerForType(
               context,
               definition.response.type as DeepRealTypeInstance,
               "value",
+              false,
               true
             )
               .map((s) => `      ${s}`)
@@ -441,9 +469,26 @@ export class TSCodeGenerator {
     context: CodeGenContext,
     type: DeepRealTypeInstance,
     value: string,
-    topLevel: boolean = false
+    needsFork: boolean,
+    needsSeparateMessage: boolean
   ): string[] {
     const idSafeVal = safeIdentifier(value);
+
+    if (context.isNative && needsSeparateMessage) {
+      if (!typeDefinitionIsNativelyMessage(type.definition)) {
+        const source = [];
+        if (needsFork) {
+          source.push("writer.fork();");
+        }
+        source.push(
+          ...this.serializerForDummyMessage(context, [type], [value], [""])
+        );
+        if (needsFork) {
+          source.push("writer.ldelim();");
+        }
+        return source;
+      }
+    }
 
     if (type.definition.kind === "builtin") {
       if (type.args.length === 0) {
@@ -455,28 +500,61 @@ export class TSCodeGenerator {
           return [`writer.${type.definition.name}(${value});`];
         }
       } else if (type.definition.name === "Array") {
-        return [
-          `writer.fork();`,
-          `for (const ${idSafeVal}_item of ${value}) {`,
+        const source = [];
+
+        if (needsFork) {
+          source.push("writer.fork();");
+        }
+
+        source.push(`for (const ${idSafeVal}_item of ${value}) {`);
+        source.push(
           ...this.serializerForType(
             context,
             type.args[0],
-            `${idSafeVal}_item`
-          ).map((s) => `  ${s}`),
-          "}",
-          "writer.ldelim();",
-        ];
+            `${idSafeVal}_item`,
+            true,
+            typeDefinitionIsNativelyArrayLike(type.args[0].definition)
+          ).map((s) => `  ${s}`)
+        );
+        source.push("}");
+
+        if (needsFork) {
+          source.push("writer.ldelim();");
+        }
+
+        return source;
       } else if (type.definition.name === "Nullable") {
-        return [
-          `writer.fork();`,
-          `writer.uint32(${value} === null ? 0 : 1);`,
-          `if (${value} !== null) {`,
-          ...this.serializerForType(context, type.args[0], `${value}`).map(
-            (s) => `  ${s}`
-          ),
-          "}",
-          "writer.ldelim();",
-        ];
+        if (context.isNative) {
+          const source = [];
+          if (needsFork) {
+            source.push("writer.fork();");
+          }
+          source.push(
+            ...this.serializerForDummyMessage(
+              context,
+              [type.args[0]],
+              [value],
+              [`${value} !== null`]
+            )
+          );
+          if (needsFork) {
+            source.push("writer.ldelim();");
+          }
+          return source;
+        } else {
+          return [
+            `writer.uint32(${value} === null ? 0 : 1);`,
+            `if (${value} !== null) {`,
+            ...this.serializerForType(
+              context,
+              type.args[0],
+              `${value}`,
+              true,
+              false
+            ).map((s) => `  ${s}`),
+            "}",
+          ];
+        }
       } else {
         this.logger.error(
           `Generation failed due to missing implementation for type ${type.definition.name}`
@@ -489,7 +567,7 @@ export class TSCodeGenerator {
       return [`writer.string(${value});`];
     } else if (type.definition.kind === "message") {
       const source = [];
-      if (!topLevel) {
+      if (needsFork) {
         source.push("writer.fork();");
       }
       if (type.args.length > 0) {
@@ -501,7 +579,7 @@ export class TSCodeGenerator {
       } else {
         source.push(`${type.definition.name}.serialize(writer, ${value});`);
       }
-      if (!topLevel) {
+      if (needsFork) {
         source.push("writer.ldelim();");
       }
       return source;
@@ -514,9 +592,23 @@ export class TSCodeGenerator {
     context: CodeGenContext,
     type: DeepRealTypeInstance,
     value: string = "value",
-    topLevel: boolean = false
+    needsFork: boolean,
+    needsSeparateMessage: boolean
   ): string[] {
     const idSafeVal = safeIdentifier(value);
+
+    if (context.isNative && needsSeparateMessage) {
+      if (!typeDefinitionIsNativelyMessage(type.definition)) {
+        const source = [];
+        if (needsFork) {
+          source.push("const end = reader.uint32() + reader.pos;");
+        }
+        source.push(
+          ...this.deserializerForDummyMessage(context, [type], [value])
+        );
+        return source;
+      }
+    }
 
     if (type.definition.kind == "builtin") {
       if (type.args.length === 0) {
@@ -531,28 +623,49 @@ export class TSCodeGenerator {
         return [
           `${value} = [];`,
           `let ${idSafeVal}_i = 0;`,
-          `const ${idSafeVal}_end = reader.pos + reader.uint32();`,
-          `while (reader.pos < ${idSafeVal}_end) {`,
+          needsFork ? `const end = reader.pos + reader.uint32();` : "",
+          `while (reader.pos < end) {`,
           ...this.deserializerForType(
             context,
             type.args[0],
-            `${value}[${idSafeVal}_i]`
+            `${value}[${idSafeVal}_i]`,
+            true,
+            typeDefinitionIsNativelyArrayLike(type.args[0].definition)
           ).map((s) => `  ${s}`),
           `  ${idSafeVal}_i++;`,
           "}",
         ];
       } else if (type.definition.name === "Nullable") {
-        return [
-          `reader.uint32();`,
-          `if (reader.uint32() === 0) {`,
-          `  ${value} = null;`,
-          `}`,
-          `else {`,
-          ...this.deserializerForType(context, type.args[0], `${value}`).map(
-            (s) => `  ${s}`
-          ),
-          "}",
-        ];
+        if (context.isNative) {
+          const source = [];
+          source.push(`${value} = null;`);
+          if (needsFork) {
+            source.push("const end = reader.uint32() + reader.pos;");
+          }
+          source.push(
+            ...this.deserializerForDummyMessage(
+              context,
+              [type.args[0]],
+              [value]
+            )
+          );
+          return source;
+        } else {
+          return [
+            `if (reader.uint32() === 0) {`,
+            `  ${value} = null;`,
+            `}`,
+            `else {`,
+            ...this.deserializerForType(
+              context,
+              type.args[0],
+              `${value}`,
+              true,
+              false
+            ).map((s) => `  ${s}`),
+            "}",
+          ];
+        }
       } else {
         this.logger.error(
           `Generation failed due to missing implementation for type ${type.definition.name}`
@@ -565,10 +678,8 @@ export class TSCodeGenerator {
       return [`${value} = reader.uint32() as ${type.definition.name};`];
     } else if (type.definition.kind === "message") {
       const source = [];
-      if (!topLevel) {
+      if (needsFork) {
         source.push(`const end = reader.uint32() + reader.pos;`);
-      } else {
-        source.push(`const end = reader.len;`);
       }
       if (type.args.length > 0) {
         source.push(
@@ -584,6 +695,81 @@ export class TSCodeGenerator {
 
     return [];
   }
+
+  serializerForDummyMessage(
+    context: CodeGenContext,
+    fields: DeepRealTypeInstance[],
+    values: string[],
+    conditions: string[]
+  ) {
+    const source = [];
+    for (let i = 1; i <= fields.length; i++) {
+      const condition = conditions[i - 1];
+      if (condition) {
+        source.push(`if (${condition}) {`);
+      }
+      source.push(
+        `${condition ? "  " : ""}writer.uint32(${
+          (i << 3) + this.wireTypeForType(fields[i - 1])
+        });`
+      );
+      source.push(
+        ...this.serializerForType(
+          context,
+          fields[i - 1],
+          values[i - 1],
+          true,
+          false
+        ).map((s) => (condition ? `  ${s}` : s))
+      );
+      if (condition) {
+        source.push(`}`);
+      }
+    }
+    return source;
+  }
+
+  deserializerForDummyMessage(
+    context: CodeGenContext,
+    fields: DeepRealTypeInstance[],
+    values: string[]
+  ) {
+    const source = [];
+    source.push(`while (reader.pos < end) {`);
+    source.push("  const tag = reader.uint32();");
+    source.push("  const idx = tag >> 3;");
+
+    for (let i = 1; i <= fields.length; i++) {
+      source.push(`  ${i > 1 ? "else " : ""}if (idx === ${i}) {`);
+      source.push(
+        ...this.deserializerForType(
+          context,
+          fields[i - 1],
+          values[i - 1],
+          true,
+          false
+        ).map((s) => `    ${s}`)
+      );
+      source.push(`  }`);
+    }
+    source.push("  else {");
+    source.push("    reader.skipType(tag & 7);");
+    source.push("  }");
+    source.push("}");
+
+    return source;
+  }
+}
+
+function typeDefinitionIsNativelyMessage(def: TypeDefinition) {
+  return (
+    def.kind === "message" ||
+    (def.kind === "builtin" && def.name === "Nullable")
+  );
+}
+
+function typeDefinitionIsNativelyArrayLike(def: TypeDefinition) {
+  return def.kind === "builtin" && def.name === "Array";
 }
 
 function safeIdentifier(value: string) {
