@@ -48,12 +48,12 @@ Native still wouldn't be one to one compatbile from the parsing perspective. I j
 - [x] VSCode extension
   - [x] TextMate grammar for syntax higlighting
   - [x] Language server integration
-- [ ] Language Server
+- [x] Language Server
   - [x] Diagnostics
   - [x] Workspace support
   - [x] Semantic token highlighting
   - [x] Goto definition
-  - [ ] Find references
-  - [ ] Rename symbol
-  - [ ] Improve diagnostics with relatedInfo
-  - [ ] Refactor and Optimize LSP
+  - [x] Improve diagnostics with relatedInfo
+  - [x] Refactor LSP
+  - [x] Find references
+  - [x] Rename symbol

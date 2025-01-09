@@ -310,7 +310,7 @@ function isWhitespace(char: string) {
   return char === "\n" || char === "\t" || char === " ";
 }
 
-export function joinTokens(tokens: Token[]) {
+export function joinTokens(tokens: DocumentItem[]) {
   return {
     range: {
       start: tokens[0].range.start,

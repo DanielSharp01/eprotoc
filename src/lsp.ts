@@ -16,7 +16,11 @@ import {
   semanticTokenHiglighting,
   semanticTokensProvider,
 } from "./lsp/semantic-tokens";
-import { gotoDefinition } from "./lsp/goto-definition";
+import {
+  findReferences,
+  gotoDefinition,
+  renameSymbol,
+} from "./lsp/definitions";
 import { documentChanged, initializeWorkspace } from "./lsp/document-sync";
 
 let connection = createConnection(ProposedFeatures.all);
@@ -65,6 +69,10 @@ connection.onInitialize((params: InitializeParams) => {
       textDocumentSync: TextDocumentSyncKind.Full,
       semanticTokensProvider,
       definitionProvider: true,
+      referencesProvider: true,
+      renameProvider: {
+        prepareProvider: true,
+      },
     },
   };
   if (hasWorkspaceFolderCapability) {
@@ -101,6 +109,8 @@ documents.onDidChangeContent((change) => {
 
 semanticTokenHiglighting(lspContext);
 gotoDefinition(lspContext);
+findReferences(lspContext);
+renameSymbol(lspContext);
 
 documents.listen(connection);
 connection.listen();

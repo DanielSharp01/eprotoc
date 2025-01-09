@@ -1,10 +1,8 @@
-import fs from "fs";
 import {
   ASTNode,
   EnumNode,
   MessageNode,
   PackageNode,
-  parse,
   ServiceNode,
   StringEnumNode,
   TypeNode,
@@ -718,10 +716,7 @@ export function realizeMessageDefinition(
     ...definition,
     fields: definition.fields.map((f) => ({
       ...f,
-      type: realizeType(
-        f.type as KnownTypeInstance,
-        genericsMap
-      ),
+      type: realizeType(f.type as KnownTypeInstance, genericsMap),
     })),
     args,
   };
@@ -737,9 +732,7 @@ function realizeType(
 
   return {
     ...type,
-    args: type.args.map((a) =>
-      realizeType(a, genericsMap)
-    ),
+    args: type.args.map((a) => realizeType(a, genericsMap)),
   };
 }
 
