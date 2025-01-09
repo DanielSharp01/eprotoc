@@ -11,7 +11,8 @@
   ],
   "scripts": {
     "build": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "install-local-wsl": "rm -rf ~/.vscode-server-insiders/extensions/vscode-eproto && cp -r ./ ~/.vscode-server-insiders/extensions/vscode-eproto/"
   },
   "main": "./dist/extension.js",
   "contributes": {
