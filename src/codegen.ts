@@ -136,7 +136,11 @@ export class TSCodeGenerator {
         swapDirectory(rootDir, outputDir, file),
         ".ts"
       );
-      writeSourceFile(newFile, source.filter((f) => !!f).join("\n\n") + "\n");
+      writeSourceFile(
+        this.logger,
+        newFile,
+        source.filter((f) => !!f).join("\n\n") + "\n"
+      );
       this.logger.info(`Generated ${newFile}`);
     }
   }

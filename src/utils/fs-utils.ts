@@ -27,7 +27,8 @@ export function ensureDirectory(logger: Console, dir: string) {
   }
 }
 
-export function writeSourceFile(file: string, source: string) {
+export function writeSourceFile(logger: Console, file: string, source: string) {
+  ensureDirectory(logger, path.dirname(file));
   fs.writeFileSync(file, source, "utf-8");
 }
 
