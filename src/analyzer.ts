@@ -382,9 +382,9 @@ export class SemanticAnalyzer {
     } else {
       definition =
         this.definitions
-          .filter((d) => d.kind !== "service")
+          .filter((d) => d.kind !== "service" && d.kind !== "package")
           .find((d) => d.name === typeName && d.packageId === packageId) ??
-        typeof currentPackageId === "string"
+        (typeof currentPackageId === "string"
           ? this.definitions
               .filter((d) => d.kind !== "service" && d.kind !== "package")
               .find(
@@ -392,7 +392,7 @@ export class SemanticAnalyzer {
                   d.name === typeName &&
                   d.packageId === `${currentPackageId as string}.${packageId}`
               )
-          : undefined;
+          : undefined);
     }
 
     if (!definition) {
