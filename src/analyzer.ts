@@ -84,7 +84,7 @@ export type MessageDefinition = BaseDefinition<MessageNode> & {
     ordinal: number;
   }[];
   args: GenericType[];
-  instances: DeepRealTypeInstance[][];
+  instances: Map<string, DeepRealTypeInstance[]>;
 };
 
 export type MessageDefinitionInstance = Omit<
@@ -144,6 +144,11 @@ export interface ServiceDefinition extends BaseDefinition<ServiceNode> {
   }[];
 }
 
+// Used to debug, could also be made into a nicer output
+export function definitionJSON(def: Definition) {
+  return def;
+}
+
 export class SemanticAnalyzer {
   public definitions: Definition[] = [];
   public builtinTypes = builtinTypes();
@@ -201,11 +206,13 @@ export class SemanticAnalyzer {
   analyze() {
     for (const definition of this.definitions) {
       if (definition.kind === "message") {
-        definition.instances = [];
+        definition.instances = new Map();
         definition.fields = [];
       } else if (definition.kind === "service") {
         definition.rpcs = [];
       }
+    }
+    for (const definition of this.definitions) {
       this.analyzeDefinition(definition);
     }
   }
@@ -522,28 +529,27 @@ export class SemanticAnalyzer {
     }
 
     if (type.definition.kind === "message") {
-      if (
-        !type.definition.instances.some(
-          (args) =>
-            args.length === type.args.length &&
-            args.every(
-              (a, i) =>
-                a.kind === "real" &&
-                type.args[i].kind === "real" &&
-                a.definition.packageId === type.args[i].definition.packageId &&
-                a.definition.name === type.args[i].definition.name
-            )
-        )
-      ) {
+      console.log(type.definition);
+      const key = type.args.map(typeId).join(",");
+      if (!type.definition.instances.has(key)) {
         const args = type.args.map(rpcTypeToDeepRealType);
         if (args.every((a) => !!a)) {
-          type.definition.instances.push(args);
+          type.definition.instances.set(key, args);
         }
       }
     }
 
     for (const arg of type.args) {
       this.addGenericMessageInstances(arg);
+    }
+
+    if (type.definition.kind === "message") {
+      for (const typeArgs of type.definition.instances.values()) {
+        for (const field of realizeMessageDefinition(type.definition, typeArgs)
+          .fields) {
+          this.addGenericMessageInstances(field.type);
+        }
+      }
     }
   }
 }
@@ -646,7 +652,7 @@ function astNodeToDefinition(
       packageId,
       args: [],
       fields: [],
-      instances: [],
+      instances: new Map(),
     };
 
     for (const arg of node.type.args) {
@@ -789,4 +795,12 @@ function getIdToken(
   } else {
     return node.name as StringToken;
   }
+}
+
+function typeId(type: RPCTypeInstance): string {
+  if (type.kind === "unknown") return "?";
+
+  return `${type.packageId.toString()}.${type.definition.name}<${type.args.map(
+    typeId
+  )}>`;
 }

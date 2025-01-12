@@ -3,12 +3,11 @@ import fs from "fs";
 import { parseCommandLine } from "./command-line";
 import { DiagnosticCollection } from "./diagnostic";
 import { Logger } from "./logger";
-import { SemanticAnalyzer } from "./analyzer";
+import { definitionJSON, SemanticAnalyzer } from "./analyzer";
 import { ensureDirectory, prettyWriteJsonFile } from "./utils/fs-utils";
 import { TSCodeGenerator } from "./codegen";
 import { ASTNode, parse } from "./parser";
 import { tokenize } from "./tokenizer";
-import { groupByMultiple } from "./utils/group-by";
 
 const logger = new Logger("debug");
 
@@ -47,12 +46,7 @@ function generator(opts: ReturnType<typeof parseCommandLine>) {
     prettyWriteJsonFile(
       logger,
       opts.printDefinitions,
-      Object.fromEntries(
-        groupByMultiple(
-          semanticAnalyzer.definitions,
-          (d) => d.packageId
-        ).entries()
-      )
+      semanticAnalyzer.definitions.map(definitionJSON).filter((f) => !!f)
     );
   }
 

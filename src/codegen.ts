@@ -204,9 +204,9 @@ export class TSCodeGenerator {
       "}",
     ].join("\n");
 
-    const realDefinitions = definition.instances.map((args) =>
-      realizeMessageDefinition(definition, args)
-    );
+    const realDefinitions = definition.instances
+      .values()
+      .map((args) => realizeMessageDefinition(definition, args));
     const objectSource = [
       `export const ${definition.name} = {`,
       ...realDefinitions.flatMap((def) =>
