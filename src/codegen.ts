@@ -316,9 +316,10 @@ export class TSCodeGenerator {
     definition: ServiceDefinition
   ): string {
     return [
+      `export type ${definition.name}Definition = typeof ${definition.name}Definition;`,
       `export const ${definition.name}Definition = {`,
       ...definition.rpcs.map((r) => this.generateRPCDefinition(context, r)),
-      "};",
+      "} as const;",
     ].join("\n");
   }
 
