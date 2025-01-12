@@ -318,18 +318,21 @@ export class TSCodeGenerator {
     return [
       `export type ${definition.name}Definition = typeof ${definition.name}Definition;`,
       `export const ${definition.name}Definition = {`,
-      ...definition.rpcs.map((r) => this.generateRPCDefinition(context, r)),
+      ...definition.rpcs.map((r) =>
+        this.generateRPCDefinition(context, definition.name, r)
+      ),
       "} as const;",
     ].join("\n");
   }
 
   private generateRPCDefinition(
     context: CodeGenContext,
+    serviceName: string,
     definition: ServiceDefinition["rpcs"][number]
   ): string {
     return [
       `  ${definition.path}: {`,
-      `    path: "${definition.path}",`,
+      `    path: "/${serviceName}/${definition.path}",`,
       `    requestStream: ${definition.request.stream ? "true" : "false"},`,
       `    responseStream: ${definition.response.stream ? "true" : "false"},`,
       `    requestSerialize(value: ${this.generateType(
@@ -682,12 +685,20 @@ export class TSCodeGenerator {
       }
       if (type.args.length > 0) {
         source.push(
-          `${value} = ${fqTypeName(context, type.definition)}["deserialize<${type.args
+          `${value} = ${fqTypeName(
+            context,
+            type.definition
+          )}["deserialize<${type.args
             .map((a) => this.generateType(context, a))
             .join(", ")}>"](reader, end);`
         );
       } else {
-        source.push(`${fqTypeName(context, type.definition)}.deserialize(reader, end);`);
+        source.push(
+          `${value} = ${fqTypeName(
+            context,
+            type.definition
+          )}.deserialize(reader, end);`
+        );
       }
       return source;
     }
