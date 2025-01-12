@@ -63,27 +63,27 @@ interface CodeGenContext {
   isNative: boolean;
   currentFile: string;
   currentPackage: string;
-  typeImports: Map<string, Set<string>>;
-  packageImports: Map<string, string>;
+  typeImports: Map<string, Map<string, string>>;
+}
+
+function fqTypeName(
+  context: CodeGenContext,
+  type: Exclude<TypeDefinition, GenericType | BuiltinTypeDefinition>
+) {
+  return context.currentFile !== type.astNode.file
+    ? `${type.packageId as string}__${type.name}`
+    : type.name;
 }
 
 function addTypeToImports(
   context: CodeGenContext,
   type: Exclude<TypeDefinition, GenericType | BuiltinTypeDefinition>
-): string | undefined {
+) {
   if (type.astNode.file && type.astNode.file !== context.currentFile) {
-    if (type.packageId === context.currentPackage) {
-      const set = context.typeImports.get(type.astNode.file) ?? new Set();
-      set.add(type.name);
-      context.typeImports.set(type.astNode.file, set);
-    } else {
-      const packageAlias = importPackageIdentifier(type.packageId as string);
-      context.packageImports.set(type.astNode.file, packageAlias);
-      return packageAlias;
-    }
+    const aliasMap = context.typeImports.get(type.astNode.file) ?? new Map();
+    aliasMap.set(fqTypeName(context, type), type.name);
+    context.typeImports.set(type.astNode.file, aliasMap);
   }
-
-  return undefined;
 }
 
 export class TSCodeGenerator {
@@ -102,7 +102,6 @@ export class TSCodeGenerator {
         currentFile: file,
         currentPackage: defs[0].packageId as string,
         typeImports: new Map(),
-        packageImports: new Map(),
       };
 
       const source: string[] = [
@@ -118,14 +117,9 @@ export class TSCodeGenerator {
         0,
         ...[...context.typeImports.entries()].map(
           ([importFile, types]) =>
-            `import { ${[...types].join(", ")} } from '${swapExtension(
-              swapDirectory(path.dirname(file), ".", importFile),
-              ""
-            )}';`
-        ),
-        ...[...context.packageImports.entries()].map(
-          ([importFile, packageAlias]) =>
-            `import * as ${packageAlias} from '${swapExtension(
+            `import { ${[
+              ...types.entries().map(([alias, type]) => `${type} as ${alias}`),
+            ].join(", ")} } from '${swapExtension(
               swapDirectory(path.dirname(file), ".", importFile),
               ""
             )}';`
@@ -453,10 +447,8 @@ export class TSCodeGenerator {
       }
     }
 
-    const packageAlias = addTypeToImports(context, type.definition);
-    return [packageAlias, `${type.definition.name}${typeArgs}`]
-      .filter((f) => !!f)
-      .join(".");
+    addTypeToImports(context, type.definition);
+    return `${fqTypeName(context, type.definition)}${typeArgs}`;
   }
 
   private wireTypeForType(type: DeepRealTypeInstance): number {
@@ -576,12 +568,14 @@ export class TSCodeGenerator {
       }
       if (type.args.length > 0) {
         source.push(
-          `${type.definition.name}["serialize<${type.args
+          `${fqTypeName(context, type.definition)}["serialize<${type.args
             .map((a) => this.generateType(context, a))
             .join(", ")}>"](writer, ${value});`
         );
       } else {
-        source.push(`${type.definition.name}.serialize(writer, ${value});`);
+        source.push(
+          `${fqTypeName(context, type.definition)}.serialize(writer, ${value});`
+        );
       }
       if (needsFork) {
         source.push("writer.ldelim();");
@@ -687,12 +681,12 @@ export class TSCodeGenerator {
       }
       if (type.args.length > 0) {
         source.push(
-          `${value} = ${type.definition.name}["deserialize<${type.args
+          `${value} = ${fqTypeName(context, type.definition)}["deserialize<${type.args
             .map((a) => this.generateType(context, a))
             .join(", ")}>"](reader, end);`
         );
       } else {
-        source.push(`${type.definition.name}.deserialize(reader, end);`);
+        source.push(`${fqTypeName(context, type.definition)}.deserialize(reader, end);`);
       }
       return source;
     }

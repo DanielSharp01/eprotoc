@@ -217,6 +217,22 @@ export class SemanticAnalyzer {
     }
   }
 
+  resolveGenericMessageInstances() {
+    for (const definition of this.definitions) {
+      if (definition.kind === "service") {
+        for (const rpc of definition.rpcs) {
+          this.addGenericMessageInstances(rpc.request.type);
+          this.addGenericMessageInstances(rpc.response.type);
+        }
+      } else if (
+        definition.kind === "message" &&
+        definition.args.length === 0
+      ) {
+        definition.instances.set("", []);
+      }
+    }
+  }
+
   removeDefinitionsFromFile(file: string) {
     this.definitions = this.definitions.filter((d) => d.astNode.file !== file);
   }
@@ -497,12 +513,7 @@ export class SemanticAnalyzer {
   }
 
   serviceResolveType(definition: ServiceDefinition, typeNode: TypeNode) {
-    const type = this.resolveType(definition, typeNode) as RPCTypeInstance;
-    if (type.kind === "unknown") {
-      return type;
-    }
-    this.addGenericMessageInstances(type);
-    return type;
+    return this.resolveType(definition, typeNode) as RPCTypeInstance;
   }
 
   addGenericMessageInstances(type: RPCTypeInstance) {
@@ -529,12 +540,16 @@ export class SemanticAnalyzer {
     }
 
     if (type.definition.kind === "message") {
-      console.log(type.definition);
       const key = type.args.map(typeId).join(",");
+
       if (!type.definition.instances.has(key)) {
         const args = type.args.map(rpcTypeToDeepRealType);
         if (args.every((a) => !!a)) {
           type.definition.instances.set(key, args);
+          for (const field of realizeMessageDefinition(type.definition, args)
+            .fields) {
+            this.addGenericMessageInstances(field.type);
+          }
         }
       }
     }
@@ -544,12 +559,6 @@ export class SemanticAnalyzer {
     }
 
     if (type.definition.kind === "message") {
-      for (const typeArgs of type.definition.instances.values()) {
-        for (const field of realizeMessageDefinition(type.definition, typeArgs)
-          .fields) {
-          this.addGenericMessageInstances(field.type);
-        }
-      }
     }
   }
 }

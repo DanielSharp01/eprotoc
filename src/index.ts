@@ -42,6 +42,7 @@ function generator(opts: ReturnType<typeof parseCommandLine>) {
     process.exit(1);
   }
   logger.info("Compilation successful");
+  semanticAnalyzer.resolveGenericMessageInstances();
   if (opts.printDefinitions) {
     prettyWriteJsonFile(
       logger,
