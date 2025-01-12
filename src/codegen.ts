@@ -377,7 +377,9 @@ export class TSCodeGenerator {
               .join("\n"),
             "      return value;",
           ].join("\n")
-        : "      // Empty due to void return type",
+        : ["      // Due to void return type", "      return {} as any;"].join(
+            "\n"
+          ),
       `    },`,
       `    responseSerialize(value: ${this.generateType(
         context,
@@ -421,7 +423,9 @@ export class TSCodeGenerator {
               .join("\n"),
             "      return value;",
           ].join("\n")
-        : "      // Empty due to void return type",
+        : ["      // Due to void return type", "      return {} as any;"].join(
+            "\n"
+          ),
       `    },`,
       "    options: {},",
       `  },`,

@@ -1,7 +1,0 @@
-package current.sub;
-
-string enum Fruit {
-  "Apple",
-  "Banana",
-  "Coconut"
-}

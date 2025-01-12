@@ -1,30 +1,9 @@
 package current;
 
-enum TestEnum {
-  A = 0,
-  B = 4,
-  C = 4,
-}
-
-message Response<TPag, TItem> {
-  TPag pagination;
-  Array<TItem> items;
-}
-
-message Pagination<T> {
-  T current;
-  optional T next;
-}
-
-message Test<T> {
-  optional T fruit;
-}
-
-message Test2 {
-  optional Nullable<sub.Fruit> fruit;
+message Test {
+  int32 test;
 }
 
 service TestService {
-  rpc test(Nullable<Response<Pagination<int32>, Date>>) returns (Pagination<string>);
-  rpc test2(Nullable<Response<Pagination<int32>, Date>>) returns (Pagination<string>);
+  rpc simple(void) returns (void);
 }
