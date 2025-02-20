@@ -242,9 +242,11 @@ export class TSCodeGenerator {
       "      const tag = reader.uint32();",
       "      const idx = tag >>> 3;",
       ...definition.fields.map((f) => this.deserializeMessageField(context, f)),
-      "      else {",
-      "        reader.skipType(tag & 7);",
-      "      }",
+      definition.fields.length > 0
+        ? ["      else {", "        reader.skipType(tag & 7);", "      }"].join(
+            "\n"
+          )
+        : "      reader.skipType(tag & 7);",
       "    }",
       "",
       "    return value;",
@@ -766,9 +768,13 @@ export class TSCodeGenerator {
       );
       source.push(`  }`);
     }
-    source.push("  else {");
-    source.push("    reader.skipType(tag & 7);");
-    source.push("  }");
+    if (fields.length > 0) {
+      source.push("  else {");
+      source.push("    reader.skipType(tag & 7);");
+      source.push("  }");
+    } else {
+      source.push("  reader.skipType(tag & 7);");
+    }
     source.push("}");
 
     return source;
