@@ -24,18 +24,18 @@ class Parser {
 
   parseTopLevel(): ASTNode | undefined {
     const current = this.current() as Exclude<Token, { tokenType: "EOF" }>;
-    if (current.tokenType === "keyword" && current.value === "message") {
+    if (current.tokenType === "identifier" && current.value === "message") {
       return this.parseMessage();
-    } else if (current.tokenType === "keyword" && current.value === "enum") {
+    } else if (current.tokenType === "identifier" && current.value === "enum") {
       return this.parseEnum();
     } else if (
       current.tokenType === "identifier" &&
       current.value === "string"
     ) {
       return this.parseStringEnum();
-    } else if (current.tokenType === "keyword" && current.value === "service") {
+    } else if (current.tokenType === "identifier" && current.value === "service") {
       return this.parseService();
-    } else if (current.tokenType === "keyword" && current.value === "package") {
+    } else if (current.tokenType === "identifier" && current.value === "package") {
       return this.parsePackageDefinition();
     }
 
@@ -48,7 +48,7 @@ class Parser {
     return undefined;
   }
 
-  expect<T extends "keyword" | "symbol" | "identifier">(
+  expect<T extends "identifier" | "symbol" | "identifier">(
     tokenType: T,
     tokenValue: string
   ): Token | undefined {
@@ -99,7 +99,7 @@ class Parser {
     return undefined;
   }
 
-  currentIs<T extends "keyword" | "symbol">(
+  currentIs<T extends "identifier" | "symbol">(
     tokenType: T,
     tokenValue: string
   ): boolean {
@@ -129,7 +129,7 @@ class Parser {
 
   parsePackageDefinition(): PackageNode {
     const node: Partial<PackageNode> = {};
-    node.keyword = this.expect("keyword", "package");
+    node.keyword = this.expect("identifier", "package");
     node.identifier = this.parseComplexIdentifier();
     if (!node.identifier) {
       return packageNode(node);
@@ -141,7 +141,7 @@ class Parser {
 
   parseEnum(): EnumNode {
     const node: Partial<EnumNode> = {};
-    node.keyword = this.expect("keyword", "enum");
+    node.keyword = this.expect("identifier", "enum");
     node.name = this.expectIdentifier();
     node.fields = [];
     if (!node.name) {
@@ -165,7 +165,7 @@ class Parser {
   parseStringEnum(): StringEnumNode {
     const node: Partial<StringEnumNode> = {};
     node.stringKeyword = this.expect("identifier", "string");
-    node.enumKeyword = this.expect("keyword", "enum");
+    node.enumKeyword = this.expect("identifier", "enum");
     node.name = this.expectIdentifier();
     node.fields = [];
     if (!node.name) {
@@ -242,7 +242,7 @@ class Parser {
 
   parseMessage(): MessageNode {
     const node: Partial<MessageNode> = {};
-    node.keyword = this.expect("keyword", "message");
+    node.keyword = this.expect("identifier", "message");
     node.type = this.parseType();
     node.fields = [];
 
@@ -263,7 +263,7 @@ class Parser {
 
   parseMessageField(): MessageFieldNode {
     const node: Partial<MessageFieldNode> = {};
-    if (this.currentIs("keyword", "optional")) {
+    if (this.currentIs("identifier", "optional")) {
       node.optional = this.current();
       this.step();
     }
@@ -296,7 +296,7 @@ class Parser {
 
   parseService(): ServiceNode {
     const node: Partial<ServiceNode> = {};
-    node.keyword = this.expect("keyword", "service");
+    node.keyword = this.expect("identifier", "service");
     node.name = this.expectIdentifier();
     if (!node.name) {
       return serviceNode(node);
@@ -319,7 +319,7 @@ class Parser {
 
   parseRPC(): RPCNode {
     const node: Partial<RPCNode> = {};
-    node.rpcKeyword = this.expect("keyword", "rpc");
+    node.rpcKeyword = this.expect("identifier", "rpc");
     if (!node.rpcKeyword) {
       return rpcNode(node);
     }
@@ -332,7 +332,7 @@ class Parser {
     if (!this.expect("symbol", "(")) {
       return rpcNode(node);
     }
-    if (this.currentIs("keyword", "stream")) {
+    if (this.currentIs("identifier", "stream")) {
       node.requestStream = this.current();
       this.step();
     }
@@ -343,14 +343,14 @@ class Parser {
     if (!this.expect("symbol", ")")) {
       return rpcNode(node);
     }
-    node.returnsKeyword = this.expect("keyword", "returns");
+    node.returnsKeyword = this.expect("identifier", "returns");
     if (!node.returnsKeyword) {
       return rpcNode(node);
     }
     if (!this.expect("symbol", "(")) {
       return rpcNode(node);
     }
-    if (this.currentIs("keyword", "stream")) {
+    if (this.currentIs("identifier", "stream")) {
       node.responseStream = this.current();
       this.step();
     }

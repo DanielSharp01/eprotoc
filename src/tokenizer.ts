@@ -16,11 +16,7 @@ export interface DocumentItem {
 }
 
 type TokenData =
-  | {
-      tokenType: "keyword";
-      value: string;
-    }
-  | {
+    {
       tokenType: "symbol";
       value: string;
     }
@@ -62,10 +58,6 @@ export function symbolToken(value: string, at: DocumentItem) {
   return { tokenType: "symbol" as const, value, ...at };
 }
 
-export function keywordToken(value: string, at: DocumentItem) {
-  return { tokenType: "keyword" as const, value, ...at };
-}
-
 export function unknownToken(value: string, at: DocumentItem) {
   return { tokenType: "unknown" as const, value, ...at };
 }
@@ -73,17 +65,6 @@ export function unknownToken(value: string, at: DocumentItem) {
 export function eofToken(at: DocumentItem) {
   return { tokenType: "EOF" as const, ...at };
 }
-
-const KEYWORDS = [
-  "message",
-  "enum",
-  "service",
-  "rpc",
-  "stream",
-  "returns",
-  "optional",
-  "package",
-];
 
 const SYMBOLS = ["<", ">", "(", ")", ";", "{", "}", "=", ",", "."];
 
@@ -271,9 +252,7 @@ export function tokenize(
   }
 
   for (const token of tokens) {
-    if (token.tokenType === "identifier" && KEYWORDS.includes(token.value)) {
-      (token as Token).tokenType = "keyword";
-    } else if (token.tokenType === "unknown") {
+    if (token.tokenType === "unknown") {
       if (SYMBOLS.includes(token.value)) {
         (token as Token).tokenType = "symbol";
       } else {
