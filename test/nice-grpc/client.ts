@@ -3,7 +3,7 @@ import {
   createChannel,
   ChannelCredentials,
 } from "nice-grpc";
-import { TestServiceDefinition } from "../output/current";
+import { TestServiceDefinition } from "../../output/current";
 
 const clientFactory = createClientFactory();
 
@@ -14,6 +14,6 @@ const channel = createChannel(
 const client = clientFactory.create(TestServiceDefinition, channel);
 
 client
-  .simple()
+  .simple({ test: 2 })
   .then((res) => console.log(res))
   .catch((err) => console.error(err));

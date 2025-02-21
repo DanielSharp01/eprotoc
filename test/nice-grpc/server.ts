@@ -1,5 +1,5 @@
 import { createServer } from "nice-grpc";
-import { TestServiceDefinition } from "../output/current";
+import { TestServiceDefinition } from "../../output/current";
 
 const server = createServer();
 

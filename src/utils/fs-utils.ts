@@ -32,9 +32,17 @@ export function writeSourceFile(logger: Console, file: string, source: string) {
   fs.writeFileSync(file, source, "utf-8");
 }
 
+export function addDotSlash(path: string) {
+  if (!path.startsWith(".")) {
+    return `./${path}`;
+  }
+
+  return path;
+}
+
 export function swapDirectory(from: string, to: string, file: string) {
   return to === "."
-    ? `./${path.relative(from, file)}`
+    ? addDotSlash(path.relative(from, file))
     : path.join(to, path.relative(from, file));
 }
 

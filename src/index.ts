@@ -60,7 +60,7 @@ function generator(opts: ReturnType<typeof parseCommandLine>) {
     opts.rootDir,
     opts.outputDir,
     semanticAnalyzer.definitions,
-    opts.codeGen === "native"
+    opts.codeGen
   );
   logger.info("Generation successful!");
 }

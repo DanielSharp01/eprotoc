@@ -772,6 +772,7 @@ function builtinTypes() {
     "string",
     "bytes",
     "Date",
+    "any",
   ]) {
     ret.push({
       kind: "builtin",
@@ -785,6 +786,15 @@ function builtinTypes() {
     packageId: BUILTIN_PACKAGE,
     name: "Array",
     args: [{ kind: "generic", name: "T", token: undefined as any }],
+  });
+  ret.push({
+    kind: "builtin",
+    packageId: BUILTIN_PACKAGE,
+    name: "Map",
+    args: [
+      { kind: "generic", name: "K", token: undefined as any },
+      { kind: "generic", name: "V", token: undefined as any },
+    ],
   });
   ret.push({
     kind: "builtin",

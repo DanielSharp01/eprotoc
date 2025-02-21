@@ -1,9 +1,14 @@
 package current;
 
+message Stuff {
+  int32 count;
+}
+
 message Test {
-  int32 test;
+  Array<Map<string, int32>> recursion;
+  int32 count;
 }
 
 service TestService {
-  rpc simple(void) returns (void);
+  rpc simple(Test) returns (any);
 }
