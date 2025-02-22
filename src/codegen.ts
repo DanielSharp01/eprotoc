@@ -9,10 +9,9 @@ import {
   StringEnumDefinition,
   DeepRealTypeInstance,
   KnownTypeInstance,
-  PackageDefinition,
-  BUILTIN_PACKAGE,
 } from "./analyzer";
 import {
+  addDotSlash,
   swapDirectory,
   swapExtension,
   writeSourceFile,
@@ -70,12 +69,13 @@ export class TSCodeGenerator {
                   .entries()
                   .map(([alias, type]) => `${type} as ${alias}`),
               ].join(", ")} } from '${swapExtension(
-                swapDirectory(
-                  path.dirname(file),
-                  ".",
-                  importFile.startsWith(rootDir)
-                    ? importFile
-                    : path.join(rootDir, importFile)
+                addDotSlash(
+                  path.relative(
+                    path.dirname(file),
+                    addDotSlash(importFile).startsWith(rootDir)
+                      ? importFile
+                      : path.join(rootDir, importFile)
+                  )
                 ),
                 ""
               )}';`
