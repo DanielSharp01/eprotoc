@@ -107,7 +107,7 @@ export function typeToGenNode(
     return {
       node: mapValueNode(
         (value) => `${value} as number`,
-        (value) => `TODO`, // TODO:
+        undefined,
         primitiveNode("uint32")
       ),
       wireType: 0,

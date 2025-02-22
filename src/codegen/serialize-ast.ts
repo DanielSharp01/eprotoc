@@ -115,12 +115,9 @@ export function serializeMapValueGenNode(
   genNode: MapValueGenNode,
   value: string
 ): string[] {
-  const source = serializeGenNode(
-    genNode.node,
-    genNode.mapSerialize ? `${value}_` : value
-  );
+  const source = serializeGenNode(genNode.node, value);
   if (genNode.mapSerialize) {
-    source.unshift(`let ${value}_: any = ${genNode.mapSerialize(value)};`);
+    source.unshift(`${value} = ${genNode.mapSerialize(value)};`);
   }
   return source;
 }
