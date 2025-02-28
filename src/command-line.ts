@@ -1,7 +1,7 @@
 import path from "path";
 import { collectFilesWithExtension } from "./utils/fs-utils";
 
-const GEN_OPTS = ["native", "evolved", "skip"] as const;
+const GEN_OPTS = ["native", "evolved", "zod", "skip"] as const;
 
 function parseOptionValue(argv: string[]): string | undefined {
   if (

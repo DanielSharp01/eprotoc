@@ -25,7 +25,7 @@ import { documentChanged, initializeWorkspace } from "./lsp/document-sync";
 
 let connection = createConnection(ProposedFeatures.all);
 let documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
-let diagnostics = new DiagnosticCollection(console, false);
+let diagnostics = new DiagnosticCollection(false);
 let analyzer = new SemanticAnalyzer(diagnostics);
 
 export interface LSPContext {

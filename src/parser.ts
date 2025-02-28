@@ -10,7 +10,7 @@ class Parser {
 
   step() {
     if (this.tokens[this.index].tokenType === "EOF") {
-      this.diagnostics.logger.error(
+      console.error(
         "Compiler crashed due to trying to step over EOF. This is a bug."
       );
       process.exit(1);

@@ -1,34 +1,33 @@
 import fs from "fs";
 import path from "path";
 import { inspect } from "util";
-import { Console } from "../logger";
 
-export function prettyWriteJsonFile(logger: Console, file: string, content: unknown) {
+export function prettyWriteJsonFile(file: string, content: unknown) {
   if (file === "stdout") {
     console.log(inspect(content, { depth: null, colors: true }));
   } else {
-    ensureDirectory(logger, path.dirname(file));
+    ensureDirectory(path.dirname(file));
     fs.writeFileSync(file, JSON.stringify(content, null, 2), "utf-8");
-    logger.info(`Definitions written to ${file}`);
+    console.info(`Definitions written to ${file}`);
   }
 }
 
-export function ensureDirectory(logger: Console, dir: string) {
+export function ensureDirectory(dir: string) {
   const dirStat = fs.existsSync(dir) ? fs.statSync(dir) : undefined;
   if (!dirStat) {
     try {
       fs.mkdirSync(dir, { recursive: true });
     } catch (err) {
-      logger.error(`Directory cannot be created at ${dir}`);
+      console.error(`Directory cannot be created at ${dir}`);
     }
   } else if (!dirStat.isDirectory()) {
-    logger.error(`Directory cannot be created at ${dir}`);
+    console.error(`Directory cannot be created at ${dir}`);
     process.exit(1);
   }
 }
 
-export function writeSourceFile(logger: Console, file: string, source: string) {
-  ensureDirectory(logger, path.dirname(file));
+export function writeSourceFile(file: string, source: string) {
+  ensureDirectory(path.dirname(file));
   fs.writeFileSync(file, source, "utf-8");
 }
 

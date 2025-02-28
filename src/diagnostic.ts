@@ -1,4 +1,3 @@
-import { Console } from "./logger";
 import { DocumentItem } from "./tokenizer";
 
 export interface Diagnostic {
@@ -33,7 +32,7 @@ export function afterToken(token: DocumentItem) {
 export class DiagnosticCollection {
   public items: Diagnostic[] = [];
 
-  constructor(public logger: Console, private trace: boolean) {}
+  constructor(private trace: boolean) {}
 
   public error(
     token: DocumentItem,
@@ -45,7 +44,7 @@ export class DiagnosticCollection {
     }
     const diagnostic = { severity: "error" as const, token, scope, message };
     if (this.trace) {
-      console.trace(formatCompilerDiagnostic(diagnostic));
+      console.error(formatCompilerDiagnostic(diagnostic));
     }
 
     this.items.push(diagnostic);
@@ -61,7 +60,7 @@ export class DiagnosticCollection {
     if (this.trace) return;
 
     for (const item of this.items) {
-      this.logger.error(formatCompilerDiagnostic(item));
+      console.error(formatCompilerDiagnostic(item));
     }
   }
 }

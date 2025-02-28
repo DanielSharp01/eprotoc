@@ -5,6 +5,7 @@
   "bin": "dist/index.js",
   "scripts": {
     "dev": "ts-node src/index.ts -- -o ./output ./eproto",
+    "dev:zod": "ts-node src/index.ts -- -g zod -o ./output/zod ./eproto",
     "dev:lsp": "ts-node src/lsp.ts -- --node-ipc",
     "build": "tsc && npm link",
     "build:lsp": "tsc && rm -rf ./extensions/vscode-eproto/dist/lsp && cp -r ./dist ./extensions/vscode-eproto/dist/lsp"
