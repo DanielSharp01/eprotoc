@@ -23,7 +23,7 @@ export const DATE_NODE: PrimitiveGenNode = {
 
 export const BOOL_NODE: PrimitiveGenNode = {
   type: "primitive",
-  writer: (value) => [`writer.uint32(${value ? 1 : 0});`],
+  writer: (value) => [`writer.uint32(${value} ? 1 : 0);`],
   reader: (value) => [`${value} = !!reader.uint32();`],
 };
 
