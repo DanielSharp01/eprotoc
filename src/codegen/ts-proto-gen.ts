@@ -210,7 +210,7 @@ function generateServiceDefinition(
     `export type ${definition.name}Definition = typeof ${definition.name}Definition;`,
     `export const ${definition.name}Definition = {`,
     ...definition.rpcs.map((r) =>
-      generateRPCDefinition(context, definition.name, r)
+      generateRPCDefinition(context, `${definition.packageId as string}.${definition.name}`, r)
     ),
     "} as const;",
   ].join("\n");
