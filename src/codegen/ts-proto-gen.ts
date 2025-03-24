@@ -23,6 +23,7 @@ import { typeToGenNode } from "./type-node";
 import { deserializeGenNode } from "./deserialize-ast";
 import { serializeGenNode } from "./serialize-ast";
 import { generateAnyDefinition } from "./builtin";
+import { toCamelCase } from "../utils/string";
 
 export function generateTsProto(
   rootDir: string,
@@ -230,7 +231,7 @@ function generateRPCDefinition(
   );
 
   return [
-    `  ${definition.path}: {`,
+    `  ${toCamelCase(definition.path)}: {`,
     `    path: "/${serviceName}/${definition.path}",`,
     `    requestStream: ${definition.request.stream ? "true" : "false"},`,
     `    responseStream: ${definition.response.stream ? "true" : "false"},`,
