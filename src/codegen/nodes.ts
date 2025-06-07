@@ -11,7 +11,7 @@ import {
 
 export const NULL_NODE: PrimitiveGenNode = {
   type: "primitive",
-  writer: () => ["writer.uint32(0);"],
+  writer: () => [],
   reader: (value) => [`${value} = null;`],
 };
 
@@ -95,10 +95,14 @@ export const subMessageNode = (messageName: string, generics: string) =>
   lenNode({
     type: "primitive",
     writer: (value) => [
-      `${messageName}[${generics ? `"serialize<${generics}>"` : `"serialize"`}](writer, ${value});`,
+      `${messageName}[${
+        generics ? `"serialize<${generics}>"` : `"serialize"`
+      }](writer, ${value});`,
     ],
     reader: (value) => [
-      `${value} = ${messageName}[${generics ? `"deserialize<${generics}>"` : `"deserialize"`}](reader, end);`,
+      `${value} = ${messageName}[${
+        generics ? `"deserialize<${generics}>"` : `"deserialize"`
+      }](reader, end);`,
     ],
   });
 
